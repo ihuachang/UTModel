@@ -125,7 +125,8 @@ def train(args):
         for i, (text, bound, mask, input2, labels) in progress_bar:
             text, bound, mask, input2, labels = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device)
 
-            print(text.shape, bound.shape, mask.shape, input2.shape, labels.shape)
+            # print the type of the input
+        
             outputs = model(text, bound, mask, input2)
             loss = criterion(outputs, labels)
             

@@ -13,7 +13,8 @@ from skimage import img_as_ubyte
 import argparse
 
 RAW_PATH = '/data/poyang/android-in-the-wild/General'
-SAVE_PATH = '/data2/peter/aiw'
+# SAVE_PATH = '/data2/peter/aiw'
+SAVE_PATH = './'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MAX_PAD = 50  # Maximum padding for batch uniformity
 TEST = False
@@ -204,18 +205,14 @@ def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
 
                         corner_position = convert_positions_to_corners(prev_record['image/ui_annotations_positions'].numpy().reshape(-1, 4))
                         bbox = find_bounding_box(prev_record['results/yx_touch'].numpy(), corner_position)  # Assuming function find_bounding_box() exists
-                        heatmap = get_gaussian_heatmap(bbox).reshape(1, 512, 256).transpose(0, 2, 1)
+                        heatmap = get_gaussian_heatmap(bbox).reshape(1, 512, 256).transpose(0, 2, 1).astype(np.float32)
 
-                        heatmap = np.uint8(255 * heatmap / np.max(heatmap))
-
-                        prev_image = prev_record['image/encoded'].numpy()
-                        cur_image = record['image/encoded'].numpy()
+                        prev_image = prev_record['image/encoded'].numpy().astype(np.float32)
+                        cur_image = record['image/encoded'].numpy().astype(np.float32)
 
                         # Resize images to a fixed size
                         prev_image = resize(prev_image, (HEIGHT, WIDTH), anti_aliasing=True).transpose(1, 0, 2)
-                        prev_image = img_as_ubyte(prev_image)  # Convert the image data to uint8
                         cur_image = resize(cur_image, (HEIGHT, WIDTH), anti_aliasing=True).transpose(1, 0, 2)
-                        cur_image = img_as_ubyte(cur_image)  # Convert the image data to uint8
 
                         combined_image = np.stack((prev_image, cur_image))  # Shape: (2, WIDTH, HEIGHT, 3)
                         combined_image = np.transpose(combined_image, (3, 0, 1, 2))  # Shape: (3, 2, WIDTH, HEIGHT)
@@ -229,6 +226,8 @@ def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
                         grp.create_dataset('image_frames', data=combined_image)
 
                         file_index += 1
+                        if file_index == 10:
+                            break
 
             if file_index % 10000 == 0:
                 print(f"Processed {file_index} entries")

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data2/peter/rico"
+dataset_path="/data2/peter/aiw"
 save_path="/data2/peter/model"
 epochs=2
 lr=0.001

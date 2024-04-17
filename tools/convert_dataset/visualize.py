@@ -32,7 +32,7 @@ def load_and_visualize_h5(file_path, output_dir):
                 blended.save(f"{output_dir}/combined_{i}_{j}.png")
 
 if __name__ == '__main__':
-    file_path = '/data2/peter/aiw/processed_data.h5'  # Path to your H5 file
+    file_path = '/home/ihua/VLM/tools/convert_dataset/processed_data_segment_1.h5'  # Path to your H5 file
     output_dir = '/home/ihua/VLM/tools/convert_dataset/visualize'  # Directory to save output images
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
