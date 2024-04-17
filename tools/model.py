@@ -319,7 +319,6 @@ class VLModel(nn.Module):
         x2d_output = self.softmax_overimage(x2d_output)
         # Process x3d through Block3D
         x3d_output, short_cut = self.block3d(x3d)
-        print(short_cut.shape)
         x3d_squeeze = torch.squeeze(x3d_output, 2)
         # Concatenate outputs from LAModel and Block3D
         x_combined = torch.cat((x2d_output, x3d_squeeze), dim=1)

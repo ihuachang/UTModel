@@ -21,6 +21,7 @@ from tools.hp5dataset import custom_collate_fn
 from tools.model import VLModel, VL2DModle, UNet
 from tools.utils import EarlyStopper
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import shutil
 
 # Model dictionary to dynamically select the model
 models = {
@@ -30,6 +31,24 @@ models = {
 }
 
 Random = 880323
+
+def check_clicks(outputs, labels):
+    # Get the indices of the max points in the outputs
+    max_indices = torch.argmax(outputs.view(outputs.shape[0], -1), dim=1)
+
+    # Compute the coordinates from the indices
+    max_points = torch.stack((max_indices // outputs.shape[3], max_indices % outputs.shape[3]), dim=1)
+
+    # Get the corresponding values from the labels
+    corresponding_label_values = labels[torch.arange(outputs.shape[0]), 0, max_points[:, 0], max_points[:, 1]]
+
+    # Count the number of t?imes the corresponding label value is greater than 0.95
+    correct = torch.sum(corresponding_label_values > 0.0001).item()
+
+    # Compute the precision
+    precision = correct / outputs.shape[0]
+
+    return precision
 
 # Assuming you are loading a pre-trained LAModel
 def load_pretrained_lamodel(model, pretrained_path):
@@ -54,18 +73,22 @@ def train(args):
     loss_gamma = args.loss_gamma
     save_path = args.save_path
     test = args.test
+    gpu = args.gpu
     save_path = f"{save_path}/{dataset_path.split('/')[-1]}/{args.model_name}/{loss_alpha}_{loss_gamma}"
     if args.model_name not in models:
         raise ValueError("Model not supported")
     model = models[args.model_name]()
 
+    # choose gpu 0 or 1
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+
     # fix random seeds for reproducibility
     torch.manual_seed(Random)
     torch.cuda.manual_seed(Random)
 
-    if not os.path.exists(save_path):
-        os.removedirs(save_path)
-        os.makedirs(save_path)
+    if os.path.exists(save_path):
+        shutil.rmtree(save_path)
+    os.makedirs(save_path)
 
     if not os.path.exists(os.path.join(save_path, "LAModel")):
         os.makedirs(os.path.join(save_path, "LAModel"))
@@ -90,6 +113,7 @@ def train(args):
 
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     print(f"Using {device} device")
     model = model.to(device)
 
@@ -107,10 +131,10 @@ def train(args):
     if not os.path.exists("loss"):
         os.makedirs("loss")
 
-    with open(f'loss/losses,{loss_alpha},{loss_gamma}.csv', 'w', newline='') as file:
+    with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         # write the header
-        writer.writerow(["Epoch", "Training Loss", "Validation Loss"])
+        writer.writerow(["Epoch", "Training Loss", "Validation Loss", "Precision"])
 
     torch.save(model.state_dict(), f'{save_path}/model_{0}.pth')
 
@@ -165,27 +189,31 @@ def train(args):
         model.eval()  # set the model to evaluation mode
 
         with torch.no_grad():  # turn off gradients for validation, saves memory and computations
+            total_precision = 0
             for text, bound, mask, input2, labels in valid_data_loader:
                 text, bound, mask, input2, labels = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device)                
 
                 outputs = model(text, bound, mask, input2)
                 loss = criterion(outputs, labels)
+                precision = check_clicks(outputs, labels)
                 if loss.item() == nan or math.isnan(loss.item()):
                     continue
 
                 # accumulate validation loss
                 validation_loss += loss.item()
+                total_precision += precision
 
         total_validation_loss = validation_loss
         validation_loss = validation_loss / len(valid_data_loader)  # get average loss
+        precision = total_precision / len(valid_data_loader)
         scheduler.step(validation_loss)
-        print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}')
+        print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}, Precision: {precision:.4f}')
         model.train()  # set the model back to training mode
 
 
         with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([epoch+1, training_loss, validation_loss])
+            writer.writerow([epoch+1, training_loss, validation_loss, precision])
         
         if early_stopper.early_stop(validation_loss):             
             break
@@ -205,5 +233,6 @@ if __name__ == "__main__":
     parser.add_argument("--loss_gamma", type=int, default=2)
     parser.add_argument("--save_path", type=str, default=".")
     parser.add_argument("--test", type=bool, default=False)
+    parser.add_argument("--gpu", type=str, default="0")
     args = parser.parse_args()
     train(args)
