@@ -45,7 +45,7 @@ class MultiFileDataset(torch.utils.data.Dataset):
                 self.dataset_keys.extend([(file_path, key) for key in file.keys()])
         
         if demo:
-            self.dataset_keys = self.dataset_keys[:10]
+            self.dataset_keys = self.dataset_keys[:1000]
         
         # Split the dataset into training and testing based on an 80/20 split
         split_index = int(len(self.dataset_keys) * 0.8)

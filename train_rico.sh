@@ -37,8 +37,7 @@ do
                 --loss_alpha ${loss_alpha} \
                 --loss_gamma ${loss_gamma} \
                 --save_path ${save_path} \
-                --csv_path ${csv_path} \
-                --test 1 
+                --csv_path ${csv_path} 
         done
     done
 done

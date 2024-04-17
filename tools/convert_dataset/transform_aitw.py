@@ -13,8 +13,8 @@ from skimage import img_as_ubyte
 import argparse
 
 RAW_PATH = '/data/poyang/android-in-the-wild/General'
-# SAVE_PATH = '/data2/peter/aiw'
-SAVE_PATH = './'
+SAVE_PATH = '/data2/peter/aiw'
+# SAVE_PATH = './'
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 MAX_PAD = 50  # Maximum padding for batch uniformity
 TEST = False
@@ -206,6 +206,10 @@ def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
                         corner_position = convert_positions_to_corners(prev_record['image/ui_annotations_positions'].numpy().reshape(-1, 4))
                         bbox = find_bounding_box(prev_record['results/yx_touch'].numpy(), corner_position)  # Assuming function find_bounding_box() exists
                         heatmap = get_gaussian_heatmap(bbox).reshape(1, 512, 256).transpose(0, 2, 1).astype(np.float32)
+                        # normalize the heatmap
+                        heatmap = heatmap / np.max(heatmap)
+                        # set > 0.9 to 1
+                        heatmap[heatmap > 0.9] = 1
 
                         prev_image = prev_record['image/encoded'].numpy().astype(np.float32)
                         cur_image = record['image/encoded'].numpy().astype(np.float32)
@@ -226,8 +230,6 @@ def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
                         grp.create_dataset('image_frames', data=combined_image)
 
                         file_index += 1
-                        if file_index == 10:
-                            break
 
             if file_index % 10000 == 0:
                 print(f"Processed {file_index} entries")

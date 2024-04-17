@@ -8,8 +8,16 @@ import argparse
 import os, csv
 
 from tools.loss import FocalLoss
-from tools.datasets import Dataset 
-from tools.model import UNet, UNet2D
+from tools.hp5dataset import MultiFileDataset as Dataset
+from tools.hp5dataset import custom_collate_fn
+from tools.model import VLModel, VL2DModle, UNet
+
+# Model dictionary to dynamically select the model
+models = {
+    "VLModel": VLModel,
+    "VL2DModel": VL2DModle,
+    "UNet": UNet
+}
 
 def check_clicks(outputs, labels):
     # Get the indices of the max points in the outputs
@@ -39,13 +47,12 @@ def evaluate(args):
 
     # Prepare your data loader
     dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=16, collate_fn = custom_collate_fn)
 
     # Load your model
-    if model_type == "UNET2D":
-        model = UNet2D()
-    elif model_type == "UNET3D":
-        model = UNet()
+    if args.model_name not in models:
+        raise ValueError("Model not supported")
+    model = models[args.model_name]()
 
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,8 +61,6 @@ def evaluate(args):
     # Define loss function and optimizer
     criterion = FocalLoss()
 
-    if csv_path == None:
-        csv_path = "/home/ihua/replay/valid/valid_pick.csv"
     valid_name = f"{model_type}_{model_path.split('/')[-2]}_{model_path.split('/')[-1].split('.')[0]}"
     csv_name = f"valid_{csv_path.split('/')[-1].split('.')[0]}"
 

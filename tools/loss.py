@@ -14,7 +14,7 @@ class FocalLoss(nn.Module):
         inputs = inputs.view(-1)
         targets = targets.view(-1)
         # normalize target
-        targets = targets/max(targets)
+        
         # Add epsilon to inputs and subtract epsilon from 1 - inputs
         inputs = torch.clamp(inputs, self.epsilon, 1 - self.epsilon)
         log_inputs = torch.log(inputs)
