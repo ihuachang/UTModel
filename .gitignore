@@ -1,2 +1,4 @@
 loss
 test
+*__pycache__*
+*.pyc

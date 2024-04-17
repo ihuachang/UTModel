@@ -10,6 +10,7 @@ import argparse
 import os 
 import csv
 import matplotlib.pyplot as plt
+import json
 
 from numpy import nan
 import math
@@ -17,10 +18,29 @@ from tools.loss import FocalLoss
 from tools.hp5dataset import MultiFileDataset as Dataset
 from tools.hp5dataset import custom_collate_fn
 # from tools.hp5dataset import SplitDataset as Dataset
-from tools.model import VLModel
+from tools.model import VLModel, VL2DModle, UNet
 from tools.utils import EarlyStopper
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+# Model dictionary to dynamically select the model
+models = {
+    "VLModel": VLModel,
+    "VL2DModel": VL2DModle,
+    "UNet": UNet
+}
 
 Random = 880323
+
+# Assuming you are loading a pre-trained LAModel
+def load_pretrained_lamodel(model, pretrained_path):
+    # Load the state dict for LAModel
+    lamodel_state_dict = torch.load(pretrained_path)
+
+    # You should update the keys in lamodel_state_dict if necessary, e.g.:
+    # lamodel_state_dict = {'laModel.' + k: v for k, v in lamodel_state_dict.items()}
+
+    # Load the state dict into the model's LAModel component
+    model.laModel.load_state_dict(lamodel_state_dict, strict=False)
 
 def train(args):
     # Configuration
@@ -34,14 +54,25 @@ def train(args):
     loss_gamma = args.loss_gamma
     save_path = args.save_path
     test = args.test
-    save_path = f"{save_path}/{loss_alpha}_{loss_gamma}"
+    save_path = f"{save_path}/{dataset_path.split('/')[-1]}/{args.model_name}/{loss_alpha}_{loss_gamma}"
+    if args.model_name not in models:
+        raise ValueError("Model not supported")
+    model = models[args.model_name]()
 
     # fix random seeds for reproducibility
     torch.manual_seed(Random)
     torch.cuda.manual_seed(Random)
 
     if not os.path.exists(save_path):
+        os.removedirs(save_path)
         os.makedirs(save_path)
+
+    if not os.path.exists(os.path.join(save_path, "LAModel")):
+        os.makedirs(os.path.join(save_path, "LAModel"))
+
+    config = vars(args)
+    with open(os.path.join(save_path, 'config.json'), 'w') as f:
+        json.dump(config, f, indent=4)
 
     demo = False
     if test:
@@ -52,9 +83,6 @@ def train(args):
 
     valid_dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path, demo=demo)
     valid_data_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=16, collate_fn = custom_collate_fn)
-
-    # Load your model
-    model = VLModel()
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))
@@ -69,9 +97,9 @@ def train(args):
     criterion = FocalLoss(loss_alpha, loss_gamma)
     # criterion = torch.nn.L1Loss()
     # criterion = torch.nn.MSELoss()
-    optimizer = Adam(model.parameters(), lr=learning_rate)
-    # optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-
+    # optimizer = Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
     # open the csv file in write mode
     import csv
 
@@ -86,7 +114,7 @@ def train(args):
 
     torch.save(model.state_dict(), f'{save_path}/model_{0}.pth')
 
-    early_stopper = EarlyStopper(patience=2, min_delta=0.00001)
+    early_stopper = EarlyStopper(patience=6, min_delta=0.00001)
 
     for epoch in range(num_epochs):
         # Instantiate a progress bar object with the total length equal to the size of the data loader
@@ -97,6 +125,7 @@ def train(args):
         for i, (text, bound, mask, input2, labels) in progress_bar:
             text, bound, mask, input2, labels = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device)
 
+            print(text.shape, bound.shape, mask.shape, input2.shape, labels.shape)
             outputs = model(text, bound, mask, input2)
             loss = criterion(outputs, labels)
             
@@ -126,6 +155,9 @@ def train(args):
         # After one epoch, close the progress bar
         progress_bar.close()
         torch.save(model.state_dict(), f'{save_path}/model_{epoch+1}.pth')
+        # Checkpoint saving example for extracting sub-models
+        if hasattr(model, 'laModel'):
+            torch.save(model.laModel.state_dict(), os.path.join(save_path, "LAModel", f'LAModel_checkpoint{epoch+1}.pth'))
 
         # Now evaluate on the validation set
         validation_loss = 0.0
@@ -145,11 +177,12 @@ def train(args):
 
         total_validation_loss = validation_loss
         validation_loss = validation_loss / len(valid_data_loader)  # get average loss
+        scheduler.step(validation_loss)
         print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}')
         model.train()  # set the model back to training mode
 
 
-        with open(f'loss/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
+        with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([epoch+1, training_loss, validation_loss])
         
@@ -159,17 +192,17 @@ def train(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train a UNet model")
-    parser.add_argument("--epochs", type=int, default=25, help="number of epochs")
-    parser.add_argument("--batch_size", type=int, default=2, help="batch size")
-    parser.add_argument("--lr", type=float, default=0.01, help="learning rate")
-    parser.add_argument("--dataset_path", type=str, default=".", help="path to the dataset")
-    parser.add_argument("--model_path", type=str, default=None, help="path to the model")
-    parser.add_argument("--csv_path", type=str, default=None, help="path to the csv file")
-    parser.add_argument("--loss_alpha", type=float, default=0.25, help="alpha for focal loss")
-    parser.add_argument("--loss_gamma", type=float, default=2.0, help="gamma for focal loss")
-    parser.add_argument("--save_path", type=str, default=".", help="path to save the model")
-    parser.add_argument("--test", type=bool, default=False, help="test mode")
-
+    parser = argparse.ArgumentParser(description="Train a model")
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--dataset_path", type=str, default=".")
+    parser.add_argument("--model_path", type=str, help="Path to a pre-trained model", default=None)
+    parser.add_argument("--model_name", type=str, choices=models.keys(), help="Model to use for training")
+    parser.add_argument("--csv_path", type=str, help="Path to the CSV file")
+    parser.add_argument("--loss_alpha", type=int, default=2)
+    parser.add_argument("--loss_gamma", type=int, default=2)
+    parser.add_argument("--save_path", type=str, default=".")
+    parser.add_argument("--test", type=bool, default=False)
     args = parser.parse_args()
     train(args)

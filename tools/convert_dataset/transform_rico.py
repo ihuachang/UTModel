@@ -133,5 +133,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     input_file = '/home/ihua/replay/rico_dataset.h5'
-    output_file = '/data2/peter/rico_vlm_dataset'
-    process_dataset(input_file, output_file, args.segment_number, args.num_segments, test=False)
+    output_file = './'
+    process_dataset(input_file, output_file, args.segment_number, args.num_segments, test=True)

@@ -177,7 +177,7 @@ class Block2D(nn.Module):
         x8 = self.layer8(x7_shortcut)
         x9 = self.layer9(x8)
         x10 = self.layer10(x9)
-        return x10, x5
+        return x10, x5, x3
 
 
 class Block3D(nn.Module):
@@ -251,9 +251,10 @@ class UNet(nn.Module):
 
         return softmax_output_reshaped
     
-    def forward(self, x2d, x3d):
+    def forward(self, text, bound, mask, x3d):
         # get block2d downsampled feature maps (block2d returns 2 feature maps)
-        _, x2d = self.block2d(x2d)
+        x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
+        _, x2d, _ = self.block2d(x2d)
 
         # get block3d downsampled feature maps and shortcut (block3d returns 2 feature maps)
         x3d, short_cut = self.block3d(x3d)
@@ -288,9 +289,10 @@ class UNet2D(nn.Module):
 
         return softmax_output_reshaped
     
-    def forward(self, x2d):
+    def forward(self, text, bound, mask, x3d):
+        x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
         # get block2d downsampled feature maps (block2d returns 2 feature maps)
-        x2doutput, x2d = self.block2d(x2d)
+        x2doutput, x2d, _ = self.block2d(x2d)
 
         # softmax
         x = self.softmax_overimage(x2doutput)
@@ -317,6 +319,7 @@ class VLModel(nn.Module):
         x2d_output = self.softmax_overimage(x2d_output)
         # Process x3d through Block3D
         x3d_output, short_cut = self.block3d(x3d)
+        print(short_cut.shape)
         x3d_squeeze = torch.squeeze(x3d_output, 2)
         # Concatenate outputs from LAModel and Block3D
         x_combined = torch.cat((x2d_output, x3d_squeeze), dim=1)
@@ -327,4 +330,38 @@ class VLModel(nn.Module):
         
         # Softmax applied to the final output
         final_output = self.softmax_overimage(decoded_output)
+        return final_output
+    
+class VL2DModle(nn.Module):
+    def __init__(self):
+        super(VL2DModle, self).__init__()
+        self.laModel = LAModel()  # adjust parameters accordingly
+        self.block2d = Block2D()  # Block3D from the UNet model in Model 1
+        self.comblayer = ConvLayer(512, 256, pool=False, upsample=False)  # Combining layer from UNet
+        self.decoder = Decoder()  # Decoder from UNet
+
+    def softmax_overimage(self, x):
+        input_reshaped = x.view(x.size(0), -1)
+        softmax_output = F.softmax(input_reshaped, dim=1)
+        softmax_output_reshaped = softmax_output.view(x.size())
+        return softmax_output_reshaped
+    
+    def forward(self, text, bound, mask, x3d):
+        language_embed = self.laModel(text, bound, mask)
+
+        # the x3d will be (batch, 3, frame_number, 256, 512), concate the first and end frame and become (6, 256, 512)
+        x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
+        _, x2doutput, shortcut = self.block2d(x2d)
+
+        language_embed = self.softmax_overimage(language_embed)
+        x2doutput = self.softmax_overimage(x2doutput)
+
+        x2d_squeeze = torch.squeeze(x2doutput, 2)
+        x_combined = torch.cat((language_embed, x2d_squeeze), dim=1)
+        x_combined = self.comblayer(x_combined)
+
+        decoded_output = self.decoder(x_combined, shortcut)
+
+        final_output = self.softmax_overimage(decoded_output)
+
         return final_output
