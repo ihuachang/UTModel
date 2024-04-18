@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data2/peter/aiw"
+dataset_path="/data2/peter/aitw.h5"
 save_path="/data2/peter/model"
 epochs=124
 lr=0.001
@@ -18,7 +18,8 @@ do
     if [ "$model_name" = "VLModel" ]; then
         batch_size=50
     elif [ "$model_name" = "VL2DModel" ]; then
-        batch_size=124
+        batch_size=32
+        val_batch_size=248
     elif [ "$model_name" = "UNet" ]; then
         batch_size=40
     fi
@@ -38,8 +39,8 @@ do
                 --loss_gamma ${loss_gamma} \
                 --save_path ${save_path} \
                 --csv_path ${csv_path} \
-                --gpu 0 \
-                --test 1
+                --val_batch_size ${val_batch_size} \
+                --gpu 0
         done
     done
 done

@@ -1,12 +1,13 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data/rico"
-save_path="/data/model"
+dataset_path="/data2/peter/rico.h5"
+save_path="/data2/peter/model"
 epochs=50
 lr=0.0001
 csv_path="./exp/pick.csv"
 
+# model_names=("VLModel" "VL2DModel" "UNet") # List of model names
 model_names=("VLModel" "VL2DModel" "UNet") # List of model names
 
 # Loop over models
@@ -16,10 +17,10 @@ do
 
     # Set batch size based on the model
     if [ "$model_name" = "VLModel" ]; then
-        batch_size=8
+        batch_size=64
         val_batch_size=32
     elif [ "$model_name" = "VL2DModel" ]; then
-        batch_size=32
+        batch_size=128
         val_batch_size=64
     elif [ "$model_name" = "UNet" ]; then
         batch_size=16
@@ -40,7 +41,9 @@ do
                 --loss_alpha ${loss_alpha} \
                 --loss_gamma ${loss_gamma} \
                 --save_path ${save_path} \
-                --csv_path ${csv_path} 
+                --csv_path ${csv_path} \
+                --val_batch_size ${val_batch_size} \
+                --gpu 0
         done
     done
 done

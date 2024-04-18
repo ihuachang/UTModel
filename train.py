@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from torch.optim import Adam
 from torch.autograd import Variable
 
@@ -8,8 +9,10 @@ import argparse
 import os 
 import json
 
+from numpy import nan
+import math
 from tools.loss import FocalLoss
-from tools.hp5dataset import MultiFileDataset as Dataset
+from tools.hp5dataset import Dataset
 from tools.hp5dataset import custom_collate_fn
 # from tools.hp5dataset import SplitDataset as Dataset
 from tools.model import VLModel, VL2DModle, UNet
@@ -96,10 +99,10 @@ def train(args):
         demo = True
     # Prepare your data loader
     train_dataset = Dataset(data_dir=dataset_path, train=True, csv=csv_path, demo=demo)
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=16, collate_fn = custom_collate_fn)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 
     valid_dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path, demo=demo)
-    valid_data_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=16, collate_fn = custom_collate_fn)
+    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=8)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))

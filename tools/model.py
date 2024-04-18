@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class LAModel(nn.Module):
-    def __init__(self, layers=2, dropout_rate=0.1, vertical_bins=200, horizontal_bins=96):
+    def __init__(self, layers=6, dropout_rate=0.1, vertical_bins=200, horizontal_bins=96):
         super(LAModel, self).__init__()
 
         # BERT model for OCR Text
@@ -12,18 +12,17 @@ class LAModel(nn.Module):
         # Spatial embedding
         self.spatial_embedding = nn.Embedding(vertical_bins * horizontal_bins, 512)
 
-        # Transformer
-        encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=4, dropout=dropout_rate)
+        # More complex Transformer
+        encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8, dropout=dropout_rate, activation='gelu')
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=layers)
 
-        # Dummy embedding that will be treated as the model output
-        self.empty_embedding = nn.Parameter(torch.zeros(512), requires_grad=True)
-
-        # Upsample and expand channels
-        self.upsample = nn.Linear(512, 32768)
+        # Upsampling layers
+        self.upsample1 = nn.ConvTranspose2d(512, 512, kernel_size=2, stride=2)  # from (2, 2) to (4, 4)
+        self.upsample2 = nn.ConvTranspose2d(512, 256, kernel_size=2, stride=2)  # from (4, 4) to (8, 8)
+        self.final_upsample = nn.ConvTranspose2d(256, 256, kernel_size=(1, 2), stride=(1, 2))  # adjust to (8, 16)
 
         self.vertical_bins = vertical_bins
-        self.horizontal_bins = horizontal_bins 
+        self.horizontal_bins = horizontal_bins
 
     def embed_step(self, ocr_emb, bboxes):
         # Reshape bboxes
@@ -84,29 +83,27 @@ class LAModel(nn.Module):
         return combined
 
     def forward(self, text, bound, mask):
-
         combined_embed = self.embed_step(text, bound)
-        # Concatenate the empty embedding to the start of the sequence
         batch_size = text.size(0)
-        empty_input = self.empty_embedding.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, -1)
-
-        combined_embed = torch.cat((empty_input,
-                                    combined_embed), dim=1)  # Adding empty embeddings at the start of the sequence
+        empty_input = torch.zeros(batch_size, 4, 512).to(text.device)
         
-        # Create a combined attention mask, with no mask for the empty embedding
-        combined_attention_mask = torch.cat((torch.ones(batch_size, 1, dtype=torch.bool, device=combined_embed.device), 
-                                            mask), dim=1)
+        combined_embed = torch.cat((empty_input, combined_embed), dim=1)
         
+        combined_attention_mask = torch.cat((torch.ones(batch_size, 4, dtype=torch.bool, device=combined_embed.device), mask), dim=1)
         combined_attention_mask = combined_attention_mask.bool()
-        # Pass through transformer
-        transformer_out = self.transformer(combined_embed.permute(1, 0, 2), src_key_padding_mask=~combined_attention_mask)
-        # Extract the output corresponding to the empty embedding
-        empty_embed_out = transformer_out[0]
         
-        upsampled_output = self.upsample(empty_embed_out)
-        upsampled_output = upsampled_output.view(-1, 256, 8, 16)
+        # Transformer processing
+        transformer_out = self.transformer(combined_embed.permute(1, 0, 2), src_key_padding_mask=~combined_attention_mask)
 
-        return upsampled_output
+        # Select only the outputs corresponding to the empty inputs and reshape
+        empty_outputs = transformer_out[:4].permute(1, 2, 0).view(batch_size, 512, 2, 2)  # Reshape to (batch, 512, 2, 2)
+
+        # Sequential upsampling
+        upsampled = self.upsample1(empty_outputs)
+        upsampled = self.upsample2(upsampled)
+        final_output = self.final_upsample(upsampled).view(batch_size, 256, 8, 16)
+
+        return final_output
     
 class ConvLayer(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, pool=True, upsample=False):
