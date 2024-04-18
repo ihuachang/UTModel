@@ -29,7 +29,7 @@ class FocalLoss(nn.Module):
         loss = torch.where(targets == 1, loss_1, loss_2)
 
         # Sum and average the loss
-        loss = loss.sum() / inputs.size(0)
+        loss = loss.mean()
 
         return -loss  # As per definition loss should be negative of calculated value
 
