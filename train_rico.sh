@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data2/peter/rico"
-save_path="/data2/peter/model"
+dataset_path="/data/rico"
+save_path="/data/model"
 epochs=50
-lr=0.001
+lr=0.0001
 csv_path="./exp/pick.csv"
 
 model_names=("VLModel" "VL2DModel" "UNet") # List of model names
@@ -16,16 +16,19 @@ do
 
     # Set batch size based on the model
     if [ "$model_name" = "VLModel" ]; then
-        batch_size=50
+        batch_size=8
+        val_batch_size=32
     elif [ "$model_name" = "VL2DModel" ]; then
-        batch_size=100
+        batch_size=32
+        val_batch_size=64
     elif [ "$model_name" = "UNet" ]; then
-        batch_size=40
+        batch_size=16
+        val_batch_size=32
     fi
     # Loop over loss_alpha and loss_gamma values
-    for loss_alpha in 3 4 5 # Changed from seq syntax for simplicity
+    for loss_alpha in 3 # Changed from seq syntax for simplicity
     do
-        for loss_gamma in 3 4 5
+        for loss_gamma in 3
         do
             echo "Training with alpha: ${loss_alpha}, gamma: ${loss_gamma}"
             python train.py \

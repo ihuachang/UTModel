@@ -11,24 +11,25 @@ class FocalLoss(nn.Module):
     def forward(self, inputs, targets):
         B, _, H, W = inputs.size()
 
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
+        inputs = inputs.flatten(start_dim=1)
+        targets = targets.flatten(start_dim=1)
         # normalize target
         
         # Add epsilon to inputs and subtract epsilon from 1 - inputs
         inputs = torch.clamp(inputs, self.epsilon, 1 - self.epsilon)
-        log_inputs = torch.log(inputs)
-        log_1_minus_inputs = torch.log(1 - inputs)
+
+        log_inputs = torch.log(inputs)  # log(p)
+        log_1_minus_inputs = torch.log1p(-inputs)
         
         # Calculate the two parts of your condition
         loss_1 = (1 - inputs) * log_inputs
-        loss_2 = (1 - targets)**self.beta * inputs**self.alpha * log_1_minus_inputs
+        loss_2 = (1 - targets).pow(self.beta) * inputs.pow(self.alpha) * log_1_minus_inputs
 
         # Apply the conditions
         loss = torch.where(targets == 1, loss_1, loss_2)
 
         # Sum and average the loss
-        loss = torch.sum(loss)
+        loss = loss.sum() / inputs.size(0)
 
-        return -loss / (B * H * W)  # As per definition loss should be negative of calculated value
+        return -loss  # As per definition loss should be negative of calculated value
 

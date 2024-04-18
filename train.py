@@ -1,26 +1,19 @@
 import torch
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from torch.optim import Adam
 from torch.autograd import Variable
-import torch.nn as nn
 
 from tqdm import tqdm
 import argparse
 import os 
-import csv
-import matplotlib.pyplot as plt
 import json
 
-from numpy import nan
-import math
 from tools.loss import FocalLoss
 from tools.hp5dataset import MultiFileDataset as Dataset
 from tools.hp5dataset import custom_collate_fn
 # from tools.hp5dataset import SplitDataset as Dataset
 from tools.model import VLModel, VL2DModle, UNet
 from tools.utils import EarlyStopper
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 import shutil
 
 # Model dictionary to dynamically select the model
@@ -65,6 +58,7 @@ def train(args):
     # Configuration
     num_epochs = args.epochs
     batch_size = args.batch_size
+    val_batch_size = args.val_batch_size
     learning_rate = args.lr
     dataset_path = args.dataset_path
     model_path = args.model_path
@@ -121,15 +115,11 @@ def train(args):
     criterion = FocalLoss(loss_alpha, loss_gamma)
     # criterion = torch.nn.L1Loss()
     # criterion = torch.nn.MSELoss()
-    # optimizer = Adam(model.parameters(), lr=learning_rate)
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
+    optimizer = Adam(model.parameters(), lr=learning_rate)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    # scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
     # open the csv file in write mode
     import csv
-
-    # open the csv file in write mode
-    if not os.path.exists("loss"):
-        os.makedirs("loss")
 
     with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'w', newline='') as file:
         writer = csv.writer(file)
@@ -154,8 +144,8 @@ def train(args):
             outputs = model(text, bound, mask, input2)
             loss = criterion(outputs, labels)
             
-            if loss.item() == nan or math.isnan(loss.item()):
-                continue
+            # if loss.item() == nan or math.isnan(loss.item()):
+            #     continue
             # Backward and optimize
 
             optimizer.zero_grad()
@@ -196,8 +186,6 @@ def train(args):
                 outputs = model(text, bound, mask, input2)
                 loss = criterion(outputs, labels)
                 precision = check_clicks(outputs, labels)
-                if loss.item() == nan or math.isnan(loss.item()):
-                    continue
 
                 # accumulate validation loss
                 validation_loss += loss.item()
@@ -206,10 +194,8 @@ def train(args):
         total_validation_loss = validation_loss
         validation_loss = validation_loss / len(valid_data_loader)  # get average loss
         precision = total_precision / len(valid_data_loader)
-        scheduler.step(validation_loss)
         print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}, Precision: {precision:.4f}')
         model.train()  # set the model back to training mode
-
 
         with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
@@ -224,6 +210,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model")
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--val_batch_size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--dataset_path", type=str, default=".")
     parser.add_argument("--model_path", type=str, help="Path to a pre-trained model", default=None)
