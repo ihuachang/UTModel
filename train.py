@@ -12,39 +12,28 @@ import json
 from numpy import nan
 import math
 from tools.loss import FocalLoss
-from tools.hp5dataset import Dataset
-from tools.hp5dataset import custom_collate_fn
-# from tools.hp5dataset import SplitDataset as Dataset
-from tools.model import VLModel, VL2DModle, UNet
+from tools.hp5dataset import MultiFileDataset as Dataset
+from tools.hp5dataset import heatmap_collate_fn, point_collate_fn
+from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D
+from tools.valid import check_clicks
 from tools.utils import EarlyStopper
 import shutil
 
 # Model dictionary to dynamically select the model
 models = {
     "VLModel": VLModel,
-    "VL2DModel": VL2DModle,
-    "UNet": UNet
+    "VL2DModel": VL2DModel,
+    "UNet": UNet,
+    "UNet3D": UNet3D,
+    "UNet2D": UNet2D
+}
+
+decoders = {
+    "heatmap": "heatmap",
+    "point": "point"
 }
 
 Random = 880323
-
-def check_clicks(outputs, labels):
-    # Get the indices of the max points in the outputs
-    max_indices = torch.argmax(outputs.view(outputs.shape[0], -1), dim=1)
-
-    # Compute the coordinates from the indices
-    max_points = torch.stack((max_indices // outputs.shape[3], max_indices % outputs.shape[3]), dim=1)
-
-    # Get the corresponding values from the labels
-    corresponding_label_values = labels[torch.arange(outputs.shape[0]), 0, max_points[:, 0], max_points[:, 1]]
-
-    # Count the number of t?imes the corresponding label value is greater than 0.95
-    correct = torch.sum(corresponding_label_values > 0.0001).item()
-
-    # Compute the precision
-    precision = correct / outputs.shape[0]
-
-    return precision
 
 # Assuming you are loading a pre-trained LAModel
 def load_pretrained_lamodel(model, pretrained_path):
@@ -69,12 +58,21 @@ def train(args):
     loss_alpha = args.loss_alpha
     loss_gamma = args.loss_gamma
     save_path = args.save_path
+    decoder_name = args.decoder
     test = args.test
     gpu = args.gpu
-    save_path = f"{save_path}/{dataset_path.split('/')[-1]}/{args.model_name}/{loss_alpha}_{loss_gamma}"
+
+    save_path = f"{save_path}/{dataset_path.split('/')[-1]}/{args.model_name}_{decoder_name}/{loss_alpha}_{loss_gamma}"
+    if test:
+        save_path = f"./test/{dataset_path.split('/')[-1]}/{args.model_name}_{decoder_name}/{loss_alpha}_{loss_gamma}"
     if args.model_name not in models:
         raise ValueError("Model not supported")
-    model = models[args.model_name]()
+    
+    model = models[args.model_name](decoder_name)
+    if decoder_name == "heatmap":
+        custom_collate_fn = heatmap_collate_fn
+    else:
+        custom_collate_fn = point_collate_fn
 
     # choose gpu 0 or 1
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
@@ -94,15 +92,12 @@ def train(args):
     with open(os.path.join(save_path, 'config.json'), 'w') as f:
         json.dump(config, f, indent=4)
 
-    demo = False
-    if test:
-        demo = True
     # Prepare your data loader
-    train_dataset = Dataset(data_dir=dataset_path, train=True, csv=csv_path, demo=demo)
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+    train_dataset = Dataset(data_dir=dataset_path, train=True, csv=csv_path, demo=test)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=custom_collate_fn)
 
-    valid_dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path, demo=demo)
-    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=8)
+    valid_dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path, demo=test)
+    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=2, collate_fn=custom_collate_fn)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))
@@ -115,7 +110,10 @@ def train(args):
     model = model.to(device)
 
     # Define loss function and optimizer
-    criterion = FocalLoss(loss_alpha, loss_gamma)
+    if decoder_name == "heatmap":
+        criterion = FocalLoss(loss_alpha, loss_gamma)
+    else:
+        criterion = torch.nn.MSELoss()
     # criterion = torch.nn.L1Loss()
     # criterion = torch.nn.MSELoss()
     optimizer = Adam(model.parameters(), lr=learning_rate)
@@ -139,7 +137,7 @@ def train(args):
         
         training_loss = 0.0
 
-        for i, (text, bound, mask, input2, labels) in progress_bar:
+        for i, (text, bound, mask, input2, labels, heats) in progress_bar:
             text, bound, mask, input2, labels = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device)
 
             # print the type of the input
@@ -183,12 +181,14 @@ def train(args):
 
         with torch.no_grad():  # turn off gradients for validation, saves memory and computations
             total_precision = 0
-            for text, bound, mask, input2, labels in valid_data_loader:
-                text, bound, mask, input2, labels = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device)                
+            for text, bound, mask, input2, labels, heats in valid_data_loader:
+                text, bound, mask, input2, labels, heats = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device), Variable(heats).to(device)            
 
                 outputs = model(text, bound, mask, input2)
                 loss = criterion(outputs, labels)
-                precision = check_clicks(outputs, labels)
+                if decoder_name == "point":
+                    labels = heats
+                precision = check_clicks(outputs, labels, decoder_name)
 
                 # accumulate validation loss
                 validation_loss += loss.item()
@@ -223,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--loss_gamma", type=int, default=2)
     parser.add_argument("--save_path", type=str, default=".")
     parser.add_argument("--test", type=bool, default=False)
+    parser.add_argument("--decoder", type=str, choices=decoders.keys(), default="heatmap")
     parser.add_argument("--gpu", type=str, default="0")
     args = parser.parse_args()
     train(args)

@@ -62,7 +62,55 @@ class MultiFileDataset(torch.utils.data.Dataset):
         # Return file path and key so that collate_fn can use it to load data
         return file_path, key
 
-def custom_collate_fn(batch):
+def point_collate_fn(batch):
+    grouped_data = defaultdict(list)
+    # Group data by the file path to minimize file open/close operations
+    for file_path, key in batch:
+        grouped_data[file_path].append(key)
+
+    # Lists to store the batched data
+    batched_texts = []
+    batched_bounds = []
+    batched_masks = []
+    batched_image_frames = []
+    batched_point = []
+    batched_heatmaps = []
+
+    # Process each file's data
+    for file_path, keys in grouped_data.items():
+        with h5py.File(file_path, 'r') as file:
+            for key in keys:
+                data = file[key]
+                text = torch.from_numpy(data['ui_annotations_text_embeddings'][:])
+                bound = torch.from_numpy(data['ui_annotations_positions'][:])
+                mask = torch.from_numpy(data['ui_annotations_attention_mask'][:])
+                image_frames = torch.from_numpy(data['image_frames'][:])
+                heatmap = torch.from_numpy(data['heatmap'][:])
+
+                batched_texts.append(text)
+                batched_bounds.append(bound)
+                batched_masks.append(mask)
+                batched_image_frames.append(image_frames)
+                max_val, flat_index = torch.max(heatmap.flatten(), 0)
+                dims = heatmap.shape
+                max_index = (flat_index // (dims[1] * dims[2]), (flat_index % (dims[1] * dims[2])) // dims[2], flat_index % dims[2])
+
+                # Converting index to a floating-point tensor
+                max_index_float = torch.tensor(max_index, dtype=torch.float)
+                batched_point.append(max_index_float[1:3])
+                batched_heatmaps.append(heatmap)
+
+    # Return lists of tensors instead of trying to convert them into a single tensor
+    batched_texts = torch.stack(batched_texts)
+    batched_bounds = torch.stack(batched_bounds)
+    batched_masks = torch.stack(batched_masks)
+    batched_image_frames = torch.stack(batched_image_frames)
+    batched_point = torch.stack(batched_point)
+    batched_heatmaps = torch.stack(batched_heatmaps)
+    
+    return batched_texts, batched_bounds, batched_masks, batched_image_frames, batched_point, batched_heatmaps
+
+def heatmap_collate_fn(batch):
     grouped_data = defaultdict(list)
     # Group data by the file path to minimize file open/close operations
     for file_path, key in batch:
@@ -98,5 +146,5 @@ def custom_collate_fn(batch):
     batched_masks = torch.stack(batched_masks)
     batched_image_frames = torch.stack(batched_image_frames)
     batched_heatmaps = torch.stack(batched_heatmaps)
-    
-    return batched_texts, batched_bounds, batched_masks, batched_image_frames, batched_heatmaps
+    dummy = torch.zeros(batched_heatmaps.shape[0], 1, batched_heatmaps.shape[2], batched_heatmaps.shape[3])
+    return batched_texts, batched_bounds, batched_masks, batched_image_frames, batched_heatmaps, dummy

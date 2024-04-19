@@ -3,3 +3,5 @@ test
 *__pycache__*
 *.pyc
 tools/convert_dataset/visualize/
+**/__pycache__/
+True
