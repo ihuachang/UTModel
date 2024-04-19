@@ -46,6 +46,30 @@ def load_pretrained_lamodel(model, pretrained_path):
     # Load the state dict into the model's LAModel component
     model.laModel.load_state_dict(lamodel_state_dict, strict=False)
 
+def validate(model, data_loader, criterion, device, decoder_name):
+    progress_bar = tqdm(enumerate(data_loader), total=len(data_loader))
+    model.eval()  # set the model to evaluation mode
+    validation_loss = 0.0
+    with torch.no_grad():  # turn off gradients for validation, saves memory and computations
+        total_precision = 0
+        for i, (text, bound, mask, input2, labels, heats) in progress_bar:
+            text, bound, mask, input2, labels, heats = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device), Variable(heats).to(device)            
+
+            outputs = model(text, bound, mask, input2)
+            loss = criterion(outputs, labels)
+            if decoder_name == "point":
+                labels = heats
+            precision = check_clicks(outputs, labels, decoder_name)
+
+            # accumulate validation loss
+            validation_loss += loss.item()
+            total_precision += precision
+
+    validation_loss = validation_loss / len(data_loader)  # get average loss
+    validation_precision = total_precision / len(data_loader)
+    progress_bar.close()
+    return validation_loss, validation_precision
+
 def train(args):
     # Configuration
     num_epochs = args.epochs
@@ -70,8 +94,10 @@ def train(args):
     
     model = models[args.model_name](decoder_name)
     if decoder_name == "heatmap":
+        print("Using heatmap decoder")
         custom_collate_fn = heatmap_collate_fn
     else:
+        print("Using point decoder")
         custom_collate_fn = point_collate_fn
 
     # choose gpu 0 or 1
@@ -93,11 +119,14 @@ def train(args):
         json.dump(config, f, indent=4)
 
     # Prepare your data loader
-    train_dataset = Dataset(data_dir=dataset_path, train=True, csv=csv_path, demo=test)
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, collate_fn=custom_collate_fn)
+    train_dataset = Dataset(data_dir=dataset_path, type="train", csv_file=csv_path, demo=test)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate_fn)
 
-    valid_dataset = Dataset(data_dir=dataset_path, train=False, csv=csv_path, demo=test)
-    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=2, collate_fn=custom_collate_fn)
+    valid_dataset = Dataset(data_dir=dataset_path, type="val", csv_file=csv_path, demo=test)
+    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+
+    test_dataset = Dataset(data_dir=dataset_path, type="test", csv_file=csv_path, demo=test)
+    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))
@@ -125,7 +154,7 @@ def train(args):
     with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'w', newline='') as file:
         writer = csv.writer(file)
         # write the header
-        writer.writerow(["Epoch", "Training Loss", "Validation Loss", "Precision"])
+        writer.writerow(["Epoch", "Training Loss", "Validation Loss", "Valid Precision", "Test Precision"])
 
     torch.save(model.state_dict(), f'{save_path}/model_{0}.pth')
 
@@ -175,34 +204,18 @@ def train(args):
         if hasattr(model, 'laModel'):
             torch.save(model.laModel.state_dict(), os.path.join(save_path, "LAModel", f'LAModel_checkpoint{epoch+1}.pth'))
 
-        # Now evaluate on the validation set
-        validation_loss = 0.0
-        model.eval()  # set the model to evaluation mode
+        
+        # Validate the model
+        validation_loss, precision = validate(model, valid_data_loader, criterion, device, decoder_name)
+        test_loss, test_precision = validate(model, test_data_loader, criterion, device, decoder_name)
 
-        with torch.no_grad():  # turn off gradients for validation, saves memory and computations
-            total_precision = 0
-            for text, bound, mask, input2, labels, heats in valid_data_loader:
-                text, bound, mask, input2, labels, heats = Variable(text).to(device), Variable(bound).to(device), Variable(mask).to(device), Variable(input2).to(device), Variable(labels).to(device), Variable(heats).to(device)            
-
-                outputs = model(text, bound, mask, input2)
-                loss = criterion(outputs, labels)
-                if decoder_name == "point":
-                    labels = heats
-                precision = check_clicks(outputs, labels, decoder_name)
-
-                # accumulate validation loss
-                validation_loss += loss.item()
-                total_precision += precision
-
-        total_validation_loss = validation_loss
-        validation_loss = validation_loss / len(valid_data_loader)  # get average loss
-        precision = total_precision / len(valid_data_loader)
-        print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}, Precision: {precision:.4f}')
+        print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}, Valid Precision: {precision:.4f}, Test Precision: {test_precision:.4f}')
         model.train()  # set the model back to training mode
 
+        # Write the losses to the csv file
         with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([epoch+1, training_loss, validation_loss, precision])
+            writer.writerow([epoch+1, total_training_loss, validation_loss, precision, test_precision])
         
         if early_stopper.early_stop(validation_loss):             
             break
@@ -218,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, default=".")
     parser.add_argument("--model_path", type=str, help="Path to a pre-trained model", default=None)
     parser.add_argument("--model_name", type=str, choices=models.keys(), help="Model to use for training")
-    parser.add_argument("--csv_path", type=str, help="Path to the CSV file")
+    parser.add_argument("--csv_path", type=str, help="Path to the CSV file", default=None)
     parser.add_argument("--loss_alpha", type=int, default=2)
     parser.add_argument("--loss_gamma", type=int, default=2)
     parser.add_argument("--save_path", type=str, default=".")
