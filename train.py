@@ -120,14 +120,14 @@ def train(args):
         json.dump(config, f, indent=4)
 
     # Prepare your data loader
-    train_dataset = Dataset(data_dir=dataset_path, type="train", csv_file=csv_path, demo=test)
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate_fn)
+    train_dataset = Dataset(data_dir=dataset_path, type="train", csv_file=csv_path, demo=test, decode_type=decoder_name)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
-    valid_dataset = Dataset(data_dir=dataset_path, type="val", csv_file=csv_path, demo=test)
-    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+    valid_dataset = Dataset(data_dir=dataset_path, type="val", csv_file=csv_path, demo=test, decode_type=decoder_name)
+    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
-    test_dataset = Dataset(data_dir=dataset_path, type="test", csv_file=csv_path, demo=test)
-    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+    test_dataset = Dataset(data_dir=dataset_path, type="test", csv_file=csv_path, demo=test, decode_type=decoder_name)
+    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))

@@ -6,11 +6,11 @@ import csv
 from collections import defaultdict
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, csv_file=None, info=False, type="train", demo=False):
+    def __init__(self, data_dir, decode_type ="heatmap", csv_file=None, info=False, type="train", demo=False):
         self.hdf5_file = data_dir
         self.file = h5py.File(self.hdf5_file, 'r')
         all_keys = list(self.file.keys())
-
+        other_keys = []
         if csv_file is not None:
             csv_keys = set()
             with open(csv_file, newline='', encoding='utf-8') as f:
@@ -19,9 +19,13 @@ class Dataset(torch.utils.data.Dataset):
                     app_name, trace_id, _ = row
                     formatted_key = f"{app_name.replace('.', '_')}_{trace_id.replace(',', '_')}"
                     csv_keys.add(formatted_key)
-
-            self.test_keys = [key for key in all_keys if any(csv_key in key for csv_key in csv_keys)]
-            other_keys = [key for key in all_keys if key not in self.test_keys].sort()
+            
+            for key in all_keys:
+                if any(csv_key in key for csv_key in csv_keys):
+                    self.test_keys.append(key)
+                else:
+                    other_keys.append(key)
+            
             self.training_keys = other_keys[:int(0.8 * len(other_keys))]
             self.validation_keys = other_keys[int(0.8 * len(other_keys)):]
         else:
@@ -41,18 +45,26 @@ class Dataset(torch.utils.data.Dataset):
         if demo:
             self.keys = self.keys[:1000]
 
+        if decode_type == "heatmap":
+            self.label = "heatmap"
+            self.label2 = "tap_point"
+        else:
+            self.label = "tap_point"
+            self.label2 = "heatmap"
+
     def __len__(self):
         return len(self.keys)
 
     def __getitem__(self, idx):
         data = self.file[self.keys[idx]]
         image_frames = torch.from_numpy(data['image_frames'][:])
-        heatmap = torch.from_numpy(data['heatmap'][:])
         text = torch.from_numpy(data['ui_annotations_text_embeddings'][:])
         bound = torch.from_numpy(data['ui_annotations_positions'][:])
         mask = torch.from_numpy(data['ui_annotations_attention_mask'][:])
+        label = torch.from_numpy(data[self.label][:])
+        label2 = torch.from_numpy(data[self.label2][:])
 
-        return text, bound, mask, image_frames, heatmap
+        return text, bound, mask, image_frames, label, label2
 
     def __del__(self):
         self.file.close()  # Ensure we close the file when the dataset object is deleted

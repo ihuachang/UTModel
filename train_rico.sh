@@ -7,8 +7,8 @@ epochs=50
 lr=0.0001
 csv_path="./valid.csv"
 
-# model_names=("VLModel" "VL2DModel" "UNet") # List of model names
-model_names=("VLModel") # List of model names
+# model_names=("VLModel" "VL2DModel" "UNet" "LModel") # List of model names
+model_names=("UNet2D" "UNet3D") # List of model names
 
 # Loop over models
 for model_name in "${model_names[@]}"
@@ -31,11 +31,14 @@ do
     elif [ "$model_name" = "UNet3D" ]; then
         batch_size=16
         val_batch_size=32
+    elif [ "$model_name" = "LModel" ]; then
+        batch_size=256
+        val_batch_size=512
     fi
     # Loop over loss_alpha and loss_gamma values
-    for loss_alpha in 4 5 # Changed from seq syntax for simplicity
+    for loss_alpha in 4 # Changed from seq syntax for simplicity
     do
-        for loss_gamma in 4 5
+        for loss_gamma in 4
         do
             echo "Training with alpha: ${loss_alpha}, gamma: ${loss_gamma}"
             python train.py \
@@ -53,4 +56,18 @@ do
                 --gpu 0
         done
     done
+    echo "Training with Point"
+    python train.py \
+        --epochs ${epochs} \
+        --batch_size ${batch_size} \
+        --lr ${lr} \
+        --dataset_path ${dataset_path} \
+        --model_name ${model_name} \
+        --loss_alpha ${loss_alpha} \
+        --loss_gamma ${loss_gamma} \
+        --save_path ${save_path} \
+        --decoder "point" \
+        --val_batch_size ${val_batch_size} \
+        --csv_path ${csv_path} \
+        --gpu 0
 done
