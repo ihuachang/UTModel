@@ -6,11 +6,11 @@ import csv
 from collections import defaultdict
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, csv_file=None, info=False, type="train", demo=False):
+    def __init__(self, data_dir, decode_type ="heatmap", csv_file=None, info=False, type="train", demo=False):
         self.hdf5_file = data_dir
         self.file = h5py.File(self.hdf5_file, 'r')
         all_keys = list(self.file.keys())
-
+        other_keys = []
         if csv_file is not None:
             csv_keys = set()
             with open(csv_file, newline='', encoding='utf-8') as f:
@@ -19,9 +19,13 @@ class Dataset(torch.utils.data.Dataset):
                     app_name, trace_id, _ = row
                     formatted_key = f"{app_name.replace('.', '_')}_{trace_id.replace(',', '_')}"
                     csv_keys.add(formatted_key)
-
-            self.test_keys = [key for key in all_keys if any(csv_key in key for csv_key in csv_keys)]
-            other_keys = [key for key in all_keys if key not in self.test_keys].sort()
+            
+            for key in all_keys:
+                if any(csv_key in key for csv_key in csv_keys):
+                    self.test_keys.append(key)
+                else:
+                    other_keys.append(key)
+            
             self.training_keys = other_keys[:int(0.8 * len(other_keys))]
             self.validation_keys = other_keys[int(0.8 * len(other_keys)):]
         else:
@@ -41,25 +45,33 @@ class Dataset(torch.utils.data.Dataset):
         if demo:
             self.keys = self.keys[:1000]
 
+        if decode_type == "heatmap":
+            self.label = "heatmap"
+            self.label2 = "tap_point"
+        else:
+            self.label = "tap_point"
+            self.label2 = "heatmap"
+
     def __len__(self):
         return len(self.keys)
 
     def __getitem__(self, idx):
         data = self.file[self.keys[idx]]
         image_frames = torch.from_numpy(data['image_frames'][:])
-        heatmap = torch.from_numpy(data['heatmap'][:])
         text = torch.from_numpy(data['ui_annotations_text_embeddings'][:])
         bound = torch.from_numpy(data['ui_annotations_positions'][:])
         mask = torch.from_numpy(data['ui_annotations_attention_mask'][:])
+        label = torch.from_numpy(data[self.label][:])
+        label2 = torch.from_numpy(data[self.label2][:])
 
-        return text, bound, mask, image_frames, heatmap
+        return text, bound, mask, image_frames, label, label2
 
     def __del__(self):
         self.file.close()  # Ensure we close the file when the dataset object is deleted
 
 
 class MultiFileDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir, csv_file=None, info=False, type="train", demo=False):
+    def __init__(self, data_dir, decode_type ="heatmap", csv_file=None, info=False, type="train", demo=False):
         self.data_dir = data_dir
         # List all .h5 files in the specified directory
         self.files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.h5')]
@@ -104,7 +116,7 @@ class MultiFileDataset(torch.utils.data.Dataset):
 
         if demo:
             self.train_dataset_keys = self.train_dataset_keys[:1000]
-            self.val_dataset_keys = self.val_dataset_keys[:500]
+            self.val_dataset_keys = self.val_dataset_keys[:100]
         
         if type == "train":
             self.dataset_keys = self.train_dataset_keys
@@ -122,91 +134,88 @@ class MultiFileDataset(torch.utils.data.Dataset):
         # Return file path and key so that collate_fn can use it to load data
         return file_path, key
 
+class CachedFileLoader:
+    def __init__(self):
+        self.open_files = {}
+
+    def get_file(self, file_path):
+        if file_path not in self.open_files:
+            self.open_files[file_path] = h5py.File(file_path, 'r')
+        return self.open_files[file_path]
+
+    def close_all(self):
+        for file in self.open_files.values():
+            file.close()
+        self.open_files = {}
+
 def point_collate_fn(batch):
+    loader = CachedFileLoader()
     grouped_data = defaultdict(list)
-    # Group data by the file path to minimize file open/close operations
+    
     for file_path, key in batch:
         grouped_data[file_path].append(key)
+    
+    # Use dictionaries to collect tensors by type
+    batched_data = {
+        'texts': [], 'bounds': [], 'masks': [], 
+        'image_frames': [], 'bbox': [], 'heatmaps': []
+    }
 
-    # Lists to store the batched data
-    batched_texts = []
-    batched_bounds = []
-    batched_masks = []
-    batched_image_frames = []
-    batched_point = []
-    batched_heatmaps = []
-
-    # Process each file's data
-    for file_path, keys in grouped_data.items():
-        with h5py.File(file_path, 'r') as file:
+    try:
+        for file_path, keys in grouped_data.items():
+            file = loader.get_file(file_path)
             for key in keys:
                 data = file[key]
-                text = torch.from_numpy(data['ui_annotations_text_embeddings'][:])
-                bound = torch.from_numpy(data['ui_annotations_positions'][:])
-                mask = torch.from_numpy(data['ui_annotations_attention_mask'][:])
-                image_frames = torch.from_numpy(data['image_frames'][:])
-                heatmap = torch.from_numpy(data['heatmap'][:])
+                batched_data['texts'].append(torch.from_numpy(data['ui_annotations_text_embeddings'][:]))
+                batched_data['bounds'].append(torch.from_numpy(data['ui_annotations_positions'][:]))
+                batched_data['masks'].append(torch.from_numpy(data['ui_annotations_attention_mask'][:]))
+                batched_data['image_frames'].append(torch.from_numpy(data['image_frames'][:]))
+                batched_data['heatmaps'].append(torch.from_numpy(data['heatmap'][:]))
+                batched_data['bbox'].append(torch.from_numpy(data['bbox'][:]))
 
-                batched_texts.append(text)
-                batched_bounds.append(bound)
-                batched_masks.append(mask)
-                batched_image_frames.append(image_frames)
-                max_val, flat_index = torch.max(heatmap.flatten(), 0)
-                dims = heatmap.shape
-                max_index = [flat_index // (dims[1] * dims[2]), (flat_index % (dims[1] * dims[2])) // dims[2], flat_index % dims[2]]
-                # normalize the point
-                max_index[1] = max_index[1] / dims[1]
-                max_index[2] = max_index[2] / dims[2]
-                # Converting index to a floating-point tensor
-                max_index_float = torch.tensor(max_index, dtype=torch.float)
-                batched_point.append(max_index_float[1:3])
-                batched_heatmaps.append(heatmap)
-
-    # Return lists of tensors instead of trying to convert them into a single tensor
-    batched_texts = torch.stack(batched_texts)
-    batched_bounds = torch.stack(batched_bounds)
-    batched_masks = torch.stack(batched_masks)
-    batched_image_frames = torch.stack(batched_image_frames)
-    batched_point = torch.stack(batched_point)
-    batched_heatmaps = torch.stack(batched_heatmaps)
-    
-    return batched_texts, batched_bounds, batched_masks, batched_image_frames, batched_point, batched_heatmaps
+        # Ensure all elements are converted to tensors and then stacked
+        for key in batched_data:
+            batched_data[key] = torch.stack(batched_data[key])
+        
+        return (
+            batched_data['texts'], batched_data['bounds'], batched_data['masks'],
+            batched_data['image_frames'], batched_data['bbox'], batched_data['heatmaps']
+        )
+    finally:
+        loader.close_all()
 
 def heatmap_collate_fn(batch):
+    loader = CachedFileLoader()
     grouped_data = defaultdict(list)
-    # Group data by the file path to minimize file open/close operations
+    
     for file_path, key in batch:
         grouped_data[file_path].append(key)
+    
+    # Use dictionaries to collect tensors by type
+    batched_data = {
+        'texts': [], 'bounds': [], 'masks': [], 
+        'image_frames': [], 'heatmaps': [], 'tappoints': []
+    }
 
-    # Lists to store the batched data
-    batched_texts = []
-    batched_bounds = []
-    batched_masks = []
-    batched_image_frames = []
-    batched_heatmaps = []
-
-    # Process each file's data
-    for file_path, keys in grouped_data.items():
-        with h5py.File(file_path, 'r') as file:
+    try:
+        for file_path, keys in grouped_data.items():
+            file = loader.get_file(file_path)
             for key in keys:
                 data = file[key]
-                text = torch.from_numpy(data['ui_annotations_text_embeddings'][:])
-                bound = torch.from_numpy(data['ui_annotations_positions'][:])
-                mask = torch.from_numpy(data['ui_annotations_attention_mask'][:])
-                image_frames = torch.from_numpy(data['image_frames'][:])
-                heatmap = torch.from_numpy(data['heatmap'][:])
+                batched_data['texts'].append(torch.from_numpy(data['ui_annotations_text_embeddings'][:]))
+                batched_data['bounds'].append(torch.from_numpy(data['ui_annotations_positions'][:]))
+                batched_data['masks'].append(torch.from_numpy(data['ui_annotations_attention_mask'][:]))
+                batched_data['image_frames'].append(torch.from_numpy(data['image_frames'][:]))
+                batched_data['heatmaps'].append(torch.from_numpy(data['heatmap'][:]))
+                batched_data['tappoints'].append(torch.from_numpy(data['tap_point'][:]))
 
-                batched_texts.append(text)
-                batched_bounds.append(bound)
-                batched_masks.append(mask)
-                batched_image_frames.append(image_frames)
-                batched_heatmaps.append(heatmap)
-
-    # Return lists of tensors instead of trying to convert them into a single tensor
-    batched_texts = torch.stack(batched_texts)
-    batched_bounds = torch.stack(batched_bounds)
-    batched_masks = torch.stack(batched_masks)
-    batched_image_frames = torch.stack(batched_image_frames)
-    batched_heatmaps = torch.stack(batched_heatmaps)
-    dummy = torch.zeros(batched_heatmaps.shape[0], 1, batched_heatmaps.shape[2], batched_heatmaps.shape[3])
-    return batched_texts, batched_bounds, batched_masks, batched_image_frames, batched_heatmaps, dummy
+        # Ensure all elements are converted to tensors and then stacked
+        for key in batched_data:
+            batched_data[key] = torch.stack(batched_data[key])
+        
+        return (
+            batched_data['texts'], batched_data['bounds'], batched_data['masks'],
+            batched_data['image_frames'], batched_data['heatmaps'], batched_data['tappoints']
+        )
+    finally:
+        loader.close_all()

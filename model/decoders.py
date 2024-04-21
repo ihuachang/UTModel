@@ -22,6 +22,23 @@ class Decoder_heatmap(nn.Module):
         x4 = self.layer4(x3)
         x5 = self.layer5(x4)
         return x5
+    
+class Decoder_heatmap_nocut(nn.Module):
+    def __init__(self):
+        super(Decoder_heatmap_nocut, self).__init__()
+        self.layer1 = ConvLayer(256, 256, pool=False, upsample=True)
+        self.layer2 = ConvLayer(256, 128, pool=False, upsample=True)
+        self.layer3 = ConvLayer(128, 128, pool=False, upsample=True)
+        self.layer4 = ConvLayer(128, 64, pool=False, upsample=True)
+        self.layer5 = ConvLayer(64, 1, pool=False, upsample=True)
+    
+    def forward(self, x, short_cut):
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+        x5 = self.layer5(x4)
+        return x5
 
 class Decoder(nn.Module):
     def __init__(self):
@@ -34,6 +51,7 @@ class Decoder(nn.Module):
         # Fully connected layers
         self.fc1 = nn.Linear(32 * 4 * 8, 100)
         self.fc2 = nn.Linear(100, 2)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, short_cut):
         # Apply convolutional layers with ReLU activations
@@ -47,5 +65,6 @@ class Decoder(nn.Module):
         # Fully connected layers with a ReLU activation between them
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
+        x = self.sigmoid(x)
 
         return x

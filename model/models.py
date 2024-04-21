@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .layers import ConvLayer, Conv3DLayer
-from .decoders import Decoder, Decoder_heatmap
+from .decoders import Decoder, Decoder_heatmap, Decoder_heatmap_nocut
 from .blocks import Block2D, Block3D, BlockLA
 from .utils import softmax_overimage, softmax_overpoint
     
@@ -95,4 +95,17 @@ class VL2DModel(nn.Module):
         x_combined = torch.cat((language_embed, torch.squeeze(x2d_output, 2)), dim=1)
         x_combined = self.comblayer(x_combined)
         decoded_output = self.decoder(x_combined, shortcut)
+        return self.softmax(decoded_output)
+
+class LModel(nn.Module):
+    def __init__(self, decoder_type='heatmap'):
+        super(LModel, self).__init__()
+        self.laModel = BlockLA()  # Make sure BlockLA is defined
+        self.decoder = Decoder_heatmap_nocut() if decoder_type == 'heatmap' else Decoder()
+        self.softmax = softmax_overimage if decoder_type == 'heatmap' else softmax_overpoint
+
+    def forward(self, text, bound, mask, x3d=None):
+        language_embed = self.laModel(text, bound, mask)
+        language_embed = softmax_overimage(language_embed)
+        decoded_output = self.decoder(language_embed, None)
         return self.softmax(decoded_output)
