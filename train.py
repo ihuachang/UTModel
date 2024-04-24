@@ -37,7 +37,9 @@ H5SIZE = 16384
 
 # Assuming you are loading a pre-trained LAModel
 def load_blockla_parameters(model, load_path, freeze=True):
-    model.laModel.load_state_dict(torch.load(load_path))
+    missing_keys, unexpected_keys = model.laModel.load_state_dict(torch.load(load_path), strict=False)
+    print(f"Missing keys: {missing_keys}")
+    print(f"Unexpected keys: {unexpected_keys}")
     if freeze:
         for param in model.laModel.parameters():
             param.requires_grad = False
@@ -80,12 +82,21 @@ def train(args):
     decoder_name = args.decoder
     test = args.test
     gpu = args.gpu
+    freeze = args.freeze
 
-    save_path = f"{save_path}/{dataset_path.split('/')[-1]}/{args.model_name}_{decoder_name}/{loss_alpha}_{loss_gamma}"
+    save_folder = os.path.join(save_path, f"{dataset_path.split('/')[-1]}")
     if test:
-        save_path = f"./test/{dataset_path.split('/')[-1]}/{args.model_name}_{decoder_name}/{loss_alpha}_{loss_gamma}"
+        save_folder = os.path.join("./test", f"{dataset_path.split('/')[-1]}")
+
+    if lamodel_path is not None:
+        save_path = os.path.join(save_folder, f"{args.model_name}_{decoder_name}_{lamodel_path.split('/')[-1].split('.')[0]}")
+    else:
+        save_path = os.path.join(save_folder, f"{args.model_name}_{decoder_name}")
+    
     if args.model_name not in models:
         raise ValueError("Model not supported")
+    if lamodel_path is not None:
+        save_path = f"{save_path}/{lamodel_path.split('/')[-1]}"
     
     model = models[args.model_name](decoder_name)
 
@@ -129,7 +140,7 @@ def train(args):
         print("Model loaded successfully")
     
     if lamodel_path is not None:
-        load_blockla_parameters(model, lamodel_path)
+        load_blockla_parameters(model, lamodel_path, freeze=freeze)
         print("LAModel loaded successfully")
 
     # Use GPU if available
@@ -192,7 +203,7 @@ def train(args):
         torch.save(model.state_dict(), f'{save_path}/model_{epoch+1}.pth')
         # Checkpoint saving example for extracting sub-models
         if hasattr(model, 'laModel'):
-            torch.save(model.laModel.state_dict(), os.path.join(save_path, "LAModel", f'LAModel_checkpoint{epoch+1}.pth'))
+            torch.save(model.laModel.state_dict(), os.path.join(save_path, "LAModel", f'{args.model_name}_LAModel_{epoch+1}.pth'))
 
         # Validate the model
         validation_loss, precision = validate(model, valid_data_loader, criterion, device, decoder_name)
@@ -225,6 +236,7 @@ if __name__ == "__main__":
     parser.add_argument("--test", type=bool, default=False)
     parser.add_argument("--decoder", type=str, choices=decoders.keys(), default="heatmap")
     parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--freeze", type=bool, default=True)
     parser.add_argument("--lamodel_path", type=str, help="Path to a pre-trained LAModel", default=None)
     args = parser.parse_args()
     train(args)

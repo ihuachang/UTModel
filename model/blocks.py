@@ -108,7 +108,7 @@ class BlockLA(nn.Module):
         transformer_out = self.transformer(combined_embed, src_key_padding_mask=~combined_attention_mask)
 
         # Select only the outputs corresponding to the empty inputs and reshape
-        empty_outputs = transformer_out[:4].permute(1, 2, 0).view(batch_size, 512, 2, 2)  # Reshape to (batch, 512, 2, 2)
+        empty_outputs = transformer_out[:,:4,:].permute(0, 2, 1).view(batch_size, 512, 2, 2)  # Reshape to (batch, 512, 2, 2)
 
         # Sequential upsampling
         upsampled = self.upsample1(empty_outputs)

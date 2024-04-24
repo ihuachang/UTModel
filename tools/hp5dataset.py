@@ -118,8 +118,8 @@ class MultiFileDataset(torch.utils.data.Dataset):
 
         if demo:
             self.train_dataset_keys = self.train_dataset_keys[:1000]
-            self.val_dataset_keys = self.val_dataset_keys[:100]
-            self.test_dataset_keys = self.test_dataset_keys[:100]
+            self.val_dataset_keys = self.val_dataset_keys[:1000]
+            self.test_dataset_keys = self.test_dataset_keys[:1000]
         
         if type == "train":
             self.dataset_keys = self.train_dataset_keys

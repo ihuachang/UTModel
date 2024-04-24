@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from .layers import ConvLayer, Conv3DLayer
 from .decoders import Decoder, Decoder_heatmap, Decoder_heatmap_nocut
 from .blocks import Block2D, Block3D, BlockLA
-from .utils import softmax_overimage, softmax_overpoint
+from .utils import softmax_overimage, softmax_overpoint, softmax_last_two_dims
     
 class UNet(nn.Module):
     def __init__(self, decoder_type='heatmap'):
@@ -21,8 +21,8 @@ class UNet(nn.Module):
         _, x2d, _ = self.block2d(x2d)
 
         x3d, short_cut = self.block3d(x3d)
-        x2d = softmax_overimage(x2d)
-        x3d = softmax_overimage(x3d)
+        x2d = softmax_last_two_dims(x2d)
+        x3d = softmax_last_two_dims(x3d)
         x3d_squeeze = torch.squeeze(x3d, 2)
         x = torch.cat((x2d, x3d_squeeze), dim=1)
         x = self.comblayer(x)
@@ -70,8 +70,8 @@ class VLModel(nn.Module):
     def forward(self, text, bound, mask, x3d):
         x2d_output = self.laModel(text, bound, mask)
         x3d_output, short_cut = self.block3d(x3d)
-        x2d_output = softmax_overimage(x2d_output)
-        x3d_output = softmax_overimage(x3d_output)
+        x2d_output = softmax_last_two_dims(x2d_output)
+        x3d_output = softmax_last_two_dims(x3d_output)
         x_combined = torch.cat((x2d_output, torch.squeeze(x3d_output, 2)), dim=1)
         x_combined = self.comblayer(x_combined)
         decoded_output = self.decoder(x_combined, short_cut)
@@ -91,7 +91,7 @@ class VL2DModel(nn.Module):
         x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
         _, x2d_output, shortcut = self.block2d(x2d)
         language_embed = softmax_overimage(language_embed)
-        x2d_output = softmax_overimage(x2d_output)
+        x2d_output = softmax_last_two_dims(x2d_output)
         x_combined = torch.cat((language_embed, torch.squeeze(x2d_output, 2)), dim=1)
         x_combined = self.comblayer(x_combined)
         decoded_output = self.decoder(x_combined, shortcut)
@@ -106,6 +106,6 @@ class LModel(nn.Module):
 
     def forward(self, text, bound, mask, x3d=None):
         language_embed = self.laModel(text, bound, mask)
-        language_embed = softmax_overimage(language_embed)
+        language_embed = softmax_last_two_dims(language_embed)
         decoded_output = self.decoder(language_embed, None)
         return self.softmax(decoded_output)
