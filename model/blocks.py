@@ -3,7 +3,7 @@ from .layers import ConvLayer, Conv3DLayer
 import torch.nn as nn
 
 class BlockLA(nn.Module):
-    def __init__(self, layers=6, dropout_rate=0.1, vertical_bins=200, horizontal_bins=96):
+    def __init__(self, layers=12, dropout_rate=0.1, vertical_bins=200, horizontal_bins=96):
         super(BlockLA, self).__init__()
 
         # BERT model for OCR Text
@@ -13,7 +13,7 @@ class BlockLA(nn.Module):
         self.spatial_embedding = nn.Embedding(vertical_bins * horizontal_bins, 512)
 
         # More complex Transformer
-        encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8, dropout=dropout_rate, activation='gelu')
+        encoder_layer = nn.TransformerEncoderLayer(d_model=512, nhead=8, dropout=dropout_rate, activation='gelu', batch_first=True)
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=layers)
 
         # Upsampling layers
@@ -67,13 +67,24 @@ class BlockLA(nn.Module):
         tr_id = tr[:, :, 0] * horizontal_bins + tr[:, :, 1]
         bl_id = bl[:, :, 0] * horizontal_bins + bl[:, :, 1]
         br_id = br[:, :, 0] * horizontal_bins + br[:, :, 1]
+        # asser if any of the id is greater than the embedding size
         
         # Get embeddings
-        tl_embed = self.spatial_embedding(tl_id.long())
-        tr_embed = self.spatial_embedding(tr_id.long())
-        bl_embed = self.spatial_embedding(bl_id.long())
-        br_embed = self.spatial_embedding(br_id.long())
+        # Correct clamping
+        # convert to long
+        tl_id, tr_id, bl_id, br_id = tl_id.long(), tr_id.long(), bl_id.long(), br_id.long()
 
+        max_id = self.vertical_bins * self.horizontal_bins - 1
+        tl_id.clamp_(0, max_id)
+        tr_id.clamp_(0, max_id)
+        bl_id.clamp_(0, max_id)
+        br_id.clamp_(0, max_id)
+
+        tl_embed = self.spatial_embedding(tl_id)
+        tr_embed = self.spatial_embedding(tr_id)
+        bl_embed = self.spatial_embedding(bl_id)
+        br_embed = self.spatial_embedding(br_id)
+        
         # Combine embeddings
         # combined = bert_embed + icon_embed + tl_embed + tr_embed + bl_embed + br_embed
 
@@ -85,7 +96,8 @@ class BlockLA(nn.Module):
     def forward(self, text, bound, mask):
         combined_embed = self.embed_step(text, bound)
         batch_size = text.size(0)
-        empty_input = torch.zeros(batch_size, 4, 512).to(text.device)
+
+        empty_input = torch.zeros(batch_size, 4, 512, dtype=torch.float16).to(text.device)
         
         combined_embed = torch.cat((empty_input, combined_embed), dim=1)
         
@@ -93,7 +105,7 @@ class BlockLA(nn.Module):
         combined_attention_mask = combined_attention_mask.bool()
         
         # Transformer processing
-        transformer_out = self.transformer(combined_embed.permute(1, 0, 2), src_key_padding_mask=~combined_attention_mask)
+        transformer_out = self.transformer(combined_embed, src_key_padding_mask=~combined_attention_mask)
 
         # Select only the outputs corresponding to the empty inputs and reshape
         empty_outputs = transformer_out[:4].permute(1, 2, 0).view(batch_size, 512, 2, 2)  # Reshape to (batch, 512, 2, 2)

@@ -21,5 +21,6 @@ def print_keys(h5_file_path):
 if __name__ == "__main__":
     # hdf5_file_path = '/home/ihua/VLM/tools/convert_dataset/processed_data_segment_1.h5'  # Change this to the path of your HDF5 file
     # print_keys(hdf5_file_path)
-    rico_file_path = '/data2/peter/rico/rico_vlm_dataset_part_9.h5'
+    #rico_file_path = '/data2/peter/rico/rico_vlm_dataset_part_0.h5'
+    rico_file_path = '/home/ihua/VLM/tools/convert_dataset/visualize/segment_0_file_0.h5'
     print_keys(rico_file_path)

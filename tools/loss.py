@@ -31,10 +31,10 @@ class FocalLoss(nn.Module):
         # Sum and average the loss
         loss = loss.mean()
 
-        return loss  
+        return -loss  
 
 class BBoxLoss(nn.Module):
-    def __init__(self, inside_penalty_weight=0.1):
+    def __init__(self, inside_penalty_weight=0.001):
         """
         Initializes the CustomLoss instance.
         

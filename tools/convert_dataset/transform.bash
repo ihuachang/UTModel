@@ -2,7 +2,7 @@
 
 # Bash script to run the Python script in different GNU screen sessions
 
-num_segments=24
+num_segments=6
 
 # Start a new tmux session in detached mode
 tmux new-session -d -s dataset_processing

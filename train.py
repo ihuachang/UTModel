@@ -1,8 +1,8 @@
 import torch
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from torch.optim import AdamW
 from torch.autograd import Variable
+from torch.cuda.amp import GradScaler, autocast
 from numpy import nan
 from tqdm import tqdm
 import argparse
@@ -16,7 +16,6 @@ from tools.hp5dataset import heatmap_collate_fn, point_collate_fn
 from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel
 from tools.valid import check_clicks
 from tools.utils import EarlyStopper
-
 
 # Model dictionary to dynamically select the model
 models = {
@@ -34,6 +33,7 @@ decoders = {
 }
 
 Random = 880323
+H5SIZE = 16384
 
 # Assuming you are loading a pre-trained LAModel
 def load_blockla_parameters(model, load_path, freeze=True):
@@ -47,14 +47,14 @@ def validate(model, data_loader, criterion, device, decoder_name):
     validation_loss = 0.0
     total_precision = 0.0
 
-    with torch.no_grad():
+    with torch.no_grad(), autocast():
         for text, bound, mask, input2, labels, heats in tqdm(data_loader, total=len(data_loader), desc="Validating"):
             text, bound, mask, input2, labels, heats = (Variable(tensor).to(device) for tensor in [text, bound, mask, input2, labels, heats])
 
             outputs = model(text, bound, mask, input2)
+            loss = criterion(outputs, labels)
             if decoder_name == "point":
                 labels = heats
-            loss = criterion(outputs, labels)
             precision = check_clicks(outputs, labels, decoder_name)
 
             validation_loss += loss.item()
@@ -88,6 +88,7 @@ def train(args):
         raise ValueError("Model not supported")
     
     model = models[args.model_name](decoder_name)
+
     if decoder_name == "heatmap":
         print("Using heatmap decoder")
         custom_collate_fn = heatmap_collate_fn
@@ -115,13 +116,13 @@ def train(args):
 
     # Prepare your data loader
     train_dataset = Dataset(data_dir=dataset_path, type="train", csv_file=csv_path, demo=test, decode_type=decoder_name)
-    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, collate_fn=custom_collate_fn)
+    train_data_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
 
     valid_dataset = Dataset(data_dir=dataset_path, type="val", csv_file=csv_path, demo=test, decode_type=decoder_name)
-    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+    valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
     test_dataset = Dataset(data_dir=dataset_path, type="test", csv_file=csv_path, demo=test, decode_type=decoder_name)
-    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=0, collate_fn=custom_collate_fn)
+    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))
@@ -147,6 +148,7 @@ def train(args):
         lr=learning_rate,  # Learning rate
         weight_decay=0.01  # Weight decay
     )
+    scaler = GradScaler()
 
     import csv
 
@@ -157,30 +159,34 @@ def train(args):
 
     torch.save(model.state_dict(), f'{save_path}/model_{0}.pth')
 
-    early_stopper = EarlyStopper(patience=6, min_delta=0.00001)
+    early_stopper = EarlyStopper(patience=4, min_delta=0.00001)
 
     for epoch in range(num_epochs):
+        train_dataset.shuffle_blocks(block_size=H5SIZE)
+        # print the first item in the dataset
+        # print(train_dataset.dataset_keys[0])
         # Instantiate a progress bar object with the total length equal to the size of the data loader
         progress_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader))
         
         training_loss = 0.0
 
         for i, (text, bound, mask, input2, labels, heats) in progress_bar:
-            if args.model_name == "LModel":
-                text, bound, mask, labels = text.to(device), bound.to(device), mask.to(device), labels.to(device)
-                outputs = model(text, bound, mask)
-            else:
-                text, bound, mask, input2, labels = text.to(device), bound.to(device), mask.to(device), input2.to(device), labels.to(device)
-                outputs = model(text, bound, mask, input2)
+            with autocast():  # Enable automatic mixed precision
+                if args.model_name == "LModel":
+                    text, bound, mask, labels = text.to(device), bound.to(device), mask.to(device), labels.to(device)
+                    outputs = model(text, bound, mask)
+                else:
+                    text, bound, mask, input2, labels = text.to(device), bound.to(device), mask.to(device), input2.to(device), labels.to(device)
+                    outputs = model(text, bound, mask, input2)
 
-            loss = criterion(outputs, labels)
+                loss = criterion(outputs, labels)
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()  # Scale the loss and call backward
+            scaler.step(optimizer)  # Unscales gradients and step optimizer
+            scaler.update()  # Update the scaler for the next iteration
             training_loss += loss.item()
             progress_bar.set_description(f'Epoch: {epoch+1}/{num_epochs}')
    
-        total_training_loss = training_loss
         training_loss = training_loss / len(train_data_loader)  # get average loss
         progress_bar.close()
         torch.save(model.state_dict(), f'{save_path}/model_{epoch+1}.pth')
@@ -198,7 +204,7 @@ def train(args):
         # Write the losses to the csv file
         with open(f'{save_path}/losses,{loss_alpha},{loss_gamma}.csv', 'a', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow([epoch+1, total_training_loss, validation_loss, precision, test_precision])
+            writer.writerow([epoch+1, training_loss, validation_loss, precision, test_precision])
         
         if early_stopper.early_stop(validation_loss):             
             break
