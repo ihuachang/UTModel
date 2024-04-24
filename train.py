@@ -12,10 +12,10 @@ import shutil
 
 from tools.loss import FocalLoss, BBoxLoss
 from tools.hp5dataset import MultiFileDataset as Dataset
-from tools.hp5dataset import heatmap_collate_fn, point_collate_fn
 from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel
-from tools.valid import check_clicks
 from tools.utils import EarlyStopper
+from tools.utils import load_blockla_parameters
+from tools.utils import validate
 
 # Model dictionary to dynamically select the model
 models = {
@@ -34,37 +34,6 @@ decoders = {
 
 Random = 880323
 H5SIZE = 16384
-
-# Assuming you are loading a pre-trained LAModel
-def load_blockla_parameters(model, load_path, freeze=True):
-    missing_keys, unexpected_keys = model.laModel.load_state_dict(torch.load(load_path), strict=False)
-    print(f"Missing keys: {missing_keys}")
-    print(f"Unexpected keys: {unexpected_keys}")
-    if freeze:
-        for param in model.laModel.parameters():
-            param.requires_grad = False
-
-def validate(model, data_loader, criterion, device, decoder_name):
-    model.eval()
-    validation_loss = 0.0
-    total_precision = 0.0
-
-    with torch.no_grad(), autocast():
-        for text, bound, mask, input2, labels, heats in tqdm(data_loader, total=len(data_loader), desc="Validating"):
-            text, bound, mask, input2, labels, heats = (Variable(tensor).to(device) for tensor in [text, bound, mask, input2, labels, heats])
-
-            outputs = model(text, bound, mask, input2)
-            loss = criterion(outputs, labels)
-            if decoder_name == "point":
-                labels = heats
-            precision = check_clicks(outputs, labels, decoder_name)
-
-            validation_loss += loss.item()
-            total_precision += precision
-
-    validation_loss /= len(data_loader)
-    validation_precision = total_precision / len(data_loader)
-    return validation_loss, validation_precision
 
 def train(args):
     # Configuration
@@ -99,13 +68,6 @@ def train(args):
         save_path = f"{save_path}/{lamodel_path.split('/')[-1]}"
     
     model = models[args.model_name](decoder_name)
-
-    if decoder_name == "heatmap":
-        print("Using heatmap decoder")
-        custom_collate_fn = heatmap_collate_fn
-    else:
-        print("Using point decoder")
-        custom_collate_fn = point_collate_fn
 
     # choose gpu 0 or 1
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu
