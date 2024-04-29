@@ -69,14 +69,14 @@ class BBoxLoss(nn.Module):
         dist_x = torch.min(torch.abs(pred_x - x_min), torch.abs(pred_x - x_max))
         dist_y = torch.min(torch.abs(pred_y - y_min), torch.abs(pred_y - y_max))
 
-        dist = torch.zeros_like(dist_x, dtype=torch.float16)  # Set dtype to float32
-        mse = torch.sqrt(dist_x**2 + dist_y**2).to(torch.float16)
+        dist = torch.zeros_like(dist_x, dtype=torch.float32)  # Set dtype to float32
+        mse = torch.sqrt(dist_x**2 + dist_y**2)
 
         dist[torch.logical_and(pred_x <= x_min, torch.logical_or(pred_y >= y_max, pred_y <= y_min))] = mse[torch.logical_and(pred_x <= x_min, torch.logical_or(pred_y >= y_max, pred_y <= y_min))]
         dist[torch.logical_and(pred_x >= x_max, torch.logical_or(pred_y >= y_max, pred_y <= y_min))] = mse[torch.logical_and(pred_x >= x_max, torch.logical_or(pred_y >= y_max, pred_y <= y_min))]
 
         mask = dist != mse
-        min_values = torch.min(dist_x[mask], dist_y[mask])
+        min_values = torch.min(dist_x[mask], dist_y[mask]).to(torch.float32)
         dist[mask] = min_values
         
         dist_to_edge = dist
