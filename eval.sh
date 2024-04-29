@@ -2,9 +2,9 @@
 
 # Common parameters
 batch_size=32
-dataset_path="/data2/peter/aiw"
-model_path="/data2/peter/model/aiw/UNet2D_heatmap/model_1.pth"
-model_name="UNet2D"
+dataset_path="/data2/peter/auto"
+model_path="/data2/peter/model/aiw/VL2DModel_heatmap/model_7.pth"
+model_name="VL2DModel"
 save_path="./validation"
 decoder_name="heatmap"
 

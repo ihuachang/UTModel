@@ -12,7 +12,7 @@ from PIL import Image
 from skimage import img_as_ubyte
 import argparse
 
-RAW_PATH = '/data/poyang/android-in-the-wild/GoogleApps'
+RAW_PATH = '/data/poyang/android-in-the-wild'
 SAVE_PATH = '/data2/peter/aiw'
 # SAVE_PATH = '/home/ihua/VLM/tools/convert_dataset/visualize'
 
@@ -25,6 +25,12 @@ WIDTH, HEIGHT = 256, 512
 # Load the BERT model and tokenizer
 bert_model = BertModel.from_pretrained('prajjwal1/bert-tiny').to(DEVICE)
 tokenizer = BertTokenizer.from_pretrained('prajjwal1/bert-tiny')
+
+def divide_files_equally(files, num_segments):
+    """Divide list of files into nearly equal segments."""
+    k, m = divmod(len(files), num_segments)
+    return [files[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(num_segments)]
+
 
 def is_tap_action(
     normalized_start_yx, normalized_end_yx
@@ -179,14 +185,15 @@ def decode_tfrecord(example):
     parsed_example['image/encoded'] = tf.reshape(raw_image, (parsed_example['image/height'], parsed_example['image/width'], parsed_example['image/channels']))
     return parsed_example
 
-def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
-    segment_size = len(filenames) // num_segments
-    start_index = segment_number * segment_size
-    end_index = start_index + segment_size if segment_number != num_segments - 1 else len(filenames)
+def load_tfrecords_to_h5(folders, segment_number, num_segments, save_path, google_app_segments, max_files=5):
+    folder_name = folders[1:][segment_number]
+    # get all the files in the folder
+    filenames = [os.path.join(RAW_PATH, folder_name, file) for file in os.listdir(os.path.join(RAW_PATH, folder_name))]
+    
+    # Append the specific segment of google_app files for this process
+    filenames += google_app_segments[segment_number]
 
-    segment_filenames = filenames[start_index:end_index]
-
-    raw_dataset = tf.data.TFRecordDataset(segment_filenames, compression_type='GZIP')
+    raw_dataset = tf.data.TFRecordDataset(filenames, compression_type='GZIP')
     parsed_dataset = raw_dataset.map(decode_tfrecord)
 
     entries_per_h5 = 16384
@@ -271,7 +278,7 @@ def load_tfrecords_to_h5(filenames, segment_number, num_segments, save_path):
                     combined_image = np.transpose(combined_image, (3, 0, 1, 2))  # Shape: (3, 2, WIDTH, HEIGHT)
 
                     # Store in HDF5 (adjust according to actual storage structure)
-                    grp = h5_file.create_group(f'entry_{current_entry_count}')
+                    grp = h5_file.create_group(f'{prev_episode_id}_entry_{current_entry_count}')
                     grp.create_dataset('ui_annotations_text_embeddings', data=embeddings_concat.numpy())
                     grp.create_dataset('ui_annotations_positions', data=positions_concat.numpy())
                     grp.create_dataset('ui_annotations_attention_mask', data=masks_concat.numpy())
@@ -301,15 +308,14 @@ if __name__ == '__main__':
     parser.add_argument('num_segments', type=int, help="Total number of segments.")
     args = parser.parse_args()
 
-    print(f"Loading from {RAW_PATH}")
     if not os.path.exists(SAVE_PATH):
         os.makedirs(SAVE_PATH)
 
+    subfolders = [f for f in os.listdir(RAW_PATH) if os.path.isdir(os.path.join(RAW_PATH, f))]
+    google_app_files = [os.path.join(RAW_PATH, 'GoogleApps', file) for file in os.listdir(os.path.join(RAW_PATH, 'GoogleApps'))]
+    google_app_segments = divide_files_equally(google_app_files, num_segments=args.num_segments)
+
+    print(f"Loading from {RAW_PATH}")
     print(f"Saving to {SAVE_PATH}")
 
-    filenames = sorted([os.path.join(RAW_PATH, file) for file in os.listdir(RAW_PATH) if os.path.isfile(os.path.join(RAW_PATH, file))])
-    print(f"Total number of files: {len(filenames)}")
-    if TEST:
-        filenames = filenames[:10]  # Only for testing purposes
-
-    load_tfrecords_to_h5(filenames, args.segment_number, args.num_segments, SAVE_PATH)
+    load_tfrecords_to_h5(subfolders, args.segment_number, args.num_segments, SAVE_PATH, google_app_segments)

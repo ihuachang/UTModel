@@ -45,7 +45,7 @@ def main(args):
         load_blockla_parameters(model, args.lamodel_path)
         print("LAModel loaded successfully.")
 
-    dataset = Dataset(data_dir=args.dataset_path, type="test", csv_file=args.csv_path, decode_type=args.decoder)
+    dataset = Dataset(data_dir=args.dataset_path, type="train", csv_file=args.csv_path, decode_type=args.decoder)
     data_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     if args.decoder == "heatmap":
@@ -64,7 +64,7 @@ def main(args):
     
     with open(save_path, "a") as file:
         csv_writer = csv.writer(file)
-        csv_writer.writerow([args.model_path.split("/")[:-2], dataset_name, validation_precision])
+        csv_writer.writerow([args.model_path.split("/")[-2:], dataset_name, validation_precision])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Validate a model")

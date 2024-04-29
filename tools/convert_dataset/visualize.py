@@ -19,6 +19,8 @@ def load_and_visualize_h5(file_path, output_dir):
 
             # Process each image in the pair
             for j, image in enumerate(images.transpose(1, 2, 3, 0)):  # Shape: (2, 256, 512, 3)
+                if j == 1:
+                    break
                 image = np.uint8(image * 255)  # Scale back to 0-255
                 img = Image.fromarray(image)
                 img = img.convert("RGBA")
@@ -36,6 +38,7 @@ def load_and_visualize_h5(file_path, output_dir):
                 draw.ellipse([center_x - 5, center_y - 5, center_x + 5, center_y + 5], fill="red")
 
                 # Save the image with the bounding box
+                print(f"Saving image {i}_{j} at {output_dir}/bbox_image_{i}_{j}.png")
                 img.save(f"{output_dir}/bbox_image_{i}_{j}.png")
                 # save heatmap and image
                 heatmap_image.save(f"{output_dir}/heatmap_{i}_{j}.png")
@@ -47,8 +50,8 @@ def load_and_visualize_h5(file_path, output_dir):
                 blended.save(f"{output_dir}/combined_{i}_{j}.png")
 
 if __name__ == '__main__':
-    file_path = '/home/ihua/VLM/tools/convert_dataset/visualize/segment_0_file_0.h5'  # Path to your H5 file
-    output_dir = '/home/ihua/VLM/tools/convert_dataset/visualize'  # Directory to save output images
+    file_path = '/data2/peter/auto_dataset/dataset/output/auto_dataset_0.h5'  # Path to your H5 file
+    output_dir = '/home/ihua/UTModel/tools/convert_dataset/visualize'  # Directory to save output images
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     load_and_visualize_h5(file_path, output_dir)

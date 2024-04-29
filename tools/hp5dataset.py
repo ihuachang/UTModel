@@ -112,9 +112,12 @@ class MultiFileDataset(torch.utils.data.Dataset):
                     self.dataset_keys.extend([(file_path, key) for key in file.keys()])
            
             self.dataset_keys.sort(key=lambda x: x[0])
-            self.train_dataset_keys = self.dataset_keys[:int(len(self.dataset_keys) * 0.8)]
-            self.val_dataset_keys = self.dataset_keys[int(len(self.dataset_keys) * 0.8):int(len(self.dataset_keys) * 0.95)]
-            self.test_dataset_keys = self.dataset_keys[int(len(self.dataset_keys) * 0.95):]
+
+            # training_dataset will be those file which is not end with 0
+            self.train_dataset_keys = [key for key in self.dataset_keys if not key[0].endswith("0.h5")]
+            self.valtest_dataset_keys = [key for key in self.dataset_keys if key[0].endswith("0.h5")]
+            self.val_dataset_keys = self.valtest_dataset_keys[:int(len(self.valtest_dataset_keys) * 0.75)]
+            self.test_dataset_keys = self.valtest_dataset_keys[int(len(self.valtest_dataset_keys) * 0.75):]
 
         if demo:
             self.train_dataset_keys = self.train_dataset_keys[:1000]

@@ -36,6 +36,8 @@ def pad_embeddings_and_positions(embeddings, positions, score, max_pad=MAX_PAD):
     # Convert to tensors
     embeddings = torch.tensor(embeddings, dtype=torch.float)
     positions = torch.tensor(positions, dtype=torch.float)
+    if len(positions) == 0:
+        positions = torch.zeros((1, 4, 2), dtype=torch.float)
     score = torch.tensor(score, dtype=torch.float)
     
     # Calculate current number of detections and the necessary padding amount
