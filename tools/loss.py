@@ -68,7 +68,18 @@ class BBoxLoss(nn.Module):
         # Calculate distance to the nearest bbox edge
         dist_x = torch.min(torch.abs(pred_x - x_min), torch.abs(pred_x - x_max))
         dist_y = torch.min(torch.abs(pred_y - y_min), torch.abs(pred_y - y_max))
-        dist_to_edge = torch.where(inside_bbox, torch.zeros_like(dist_x), torch.sqrt(dist_x**2 + dist_y**2))
+
+        dist = torch.zeros_like(dist_x, dtype=torch.float16)  # Set dtype to float32
+        mse = torch.sqrt(dist_x**2 + dist_y**2).to(torch.float16)
+
+        dist[torch.logical_and(pred_x <= x_min, torch.logical_or(pred_y >= y_max, pred_y <= y_min))] = mse[torch.logical_and(pred_x <= x_min, torch.logical_or(pred_y >= y_max, pred_y <= y_min))]
+        dist[torch.logical_and(pred_x >= x_max, torch.logical_or(pred_y >= y_max, pred_y <= y_min))] = mse[torch.logical_and(pred_x >= x_max, torch.logical_or(pred_y >= y_max, pred_y <= y_min))]
+
+        mask = dist != mse
+        min_values = torch.min(dist_x[mask], dist_y[mask])
+        dist[mask] = min_values
+        
+        dist_to_edge = dist
 
         # Calculate distance inside the box to the center of the box
         center_x = (x_min + x_max) / 2
@@ -77,6 +88,6 @@ class BBoxLoss(nn.Module):
         loss_inside = dist_to_center * self.inside_penalty_weight  # Apply weight to the inside penalty
 
         # Combine loss: zero if inside (with a small penalty), distance to edge if outside
-        loss = torch.where(inside_bbox, loss_inside, dist_to_edge)
+        loss = torch.where(inside_bbox, loss_inside, dist_to_edge + loss_inside) 
 
         return loss.mean()
