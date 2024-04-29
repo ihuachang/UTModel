@@ -82,6 +82,9 @@ def train(args):
 
     if not os.path.exists(os.path.join(save_path, "LAModel")):
         os.makedirs(os.path.join(save_path, "LAModel"))
+    
+    if not os.path.exists(os.path.join(save_path, "block3d")):
+        os.makedirs(os.path.join(save_path, "block3d"))
 
     config = vars(args)
     with open(os.path.join(save_path, 'config.json'), 'w') as f:
@@ -166,6 +169,9 @@ def train(args):
         # Checkpoint saving example for extracting sub-models
         if hasattr(model, 'laModel'):
             torch.save(model.laModel.state_dict(), os.path.join(save_path, "LAModel", f'{args.model_name}_LAModel_{epoch+1}.pth'))
+
+        if hasattr(model, 'block3d'):
+            torch.save(model.block3d.state_dict(), os.path.join(save_path, "block3d", f'{args.model_name}_BLOCK3D_{epoch+1}.pth'))
 
         # Validate the model
         validation_loss, precision = validate(model, valid_data_loader, criterion, device, decoder_name)
