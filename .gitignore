@@ -5,4 +5,4 @@ test
 tools/convert_dataset/visualize/
 **/__pycache__/
 True
-validation
+validation/

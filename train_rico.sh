@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data/rico"
-save_path="/data/model"
+dataset_path="/data2/peter/rico"
+save_path="/data2/peter/model"
 epochs=100
 lr=0.0001
 csv_path="./exp/pick.csv"
 # model_names=("VLModel" "VL2DModel" "UNet")  # List of model names
 # model_names=("UNet2D" "VL2DModel" "LModel")  # List of model names
-model_names=("UNet" "UNet3D" "UNet2D" "VLModel" "VL2DModel" "LModel")
+model_names=("ULModel")
 
 lmodel="/home/ihua/UTModel/test/aiw/LModel_heatmap/LAModel/LModel_LAModel_2.pth"
 freeze=0
@@ -36,6 +36,9 @@ do
     elif [ "$model_name" = "UNet3D" ]; then
         batch_size=16
         val_batch_size=32
+    elif [ "$model_name" = "ULModel" ]; then
+        batch_size=64
+        val_batch_size=128
     fi
     # Loop over loss_alpha and loss_gamma values
     for loss_alpha in 4  # Changed from seq syntax for simplicity
@@ -54,8 +57,9 @@ do
                 --loss_gamma ${loss_gamma} \
                 --save_path ${save_path} \
                 --val_batch_size ${val_batch_size} \
-                --freeze ${freeze} \
-                --gpu 0
+                --gpu 1 \
+                # --freeze ${freeze} \
+    
         done
     done
 done

@@ -81,9 +81,9 @@ class MultiFileDataset(torch.utils.data.Dataset):
         self.dataset_keys = []
         self.file_handles = {}
         self.decode_type = decode_type
-
         # Extract keys from all files
         if csv_file is not None:
+            print("Using CSV file to filter keys")
             csv_keys = set()
             with open(csv_file, newline='', encoding='utf-8') as f:
                 reader = csv.reader(f)
@@ -102,27 +102,23 @@ class MultiFileDataset(torch.utils.data.Dataset):
                             other_keys.append((file_path, key))
             
             other_keys = sorted(other_keys, key=lambda x: x[0])
-            split_index = int(len(other_keys) * 0.8)
+            split_index = int(len(other_keys) * 0.9)
             self.train_dataset_keys = other_keys[:split_index]
             self.val_dataset_keys = other_keys[split_index:]
-            
+        
         else:
             for file_path in self.files:
                 with h5py.File(file_path, 'r') as file:
                     self.dataset_keys.extend([(file_path, key) for key in file.keys()])
            
             self.dataset_keys.sort(key=lambda x: x[0])
-
-            # training_dataset will be those file which is not end with 0
-            self.train_dataset_keys = [key for key in self.dataset_keys if not key[0].endswith("0.h5")]
-            self.valtest_dataset_keys = [key for key in self.dataset_keys if key[0].endswith("0.h5")]
-            self.val_dataset_keys = self.valtest_dataset_keys[:int(len(self.valtest_dataset_keys) * 0.75)]
-            self.test_dataset_keys = self.valtest_dataset_keys[int(len(self.valtest_dataset_keys) * 0.75):]
+            self.train_dataset_keys = self.dataset_keys[:int(0.9 * len(self.dataset_keys))]
+            self.val_dataset_keys = self.dataset_keys[int(0.9 * len(self.dataset_keys)):]
+            self.test_dataset_keys = self.dataset_keys
 
         if demo:
             self.train_dataset_keys = self.train_dataset_keys[:1000]
             self.val_dataset_keys = self.val_dataset_keys[:1000]
-            self.test_dataset_keys = self.test_dataset_keys[:1000]
         
         if type == "train":
             self.dataset_keys = self.train_dataset_keys

@@ -10,7 +10,7 @@ import csv
 
 from tools.hp5dataset import MultiFileDataset as Dataset
 from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel
-from tools.utils import check_clicks, load_blockla_parameters, validate
+from tools.utils import load_blockla_parameters, validate
 from tools.loss import FocalLoss, BBoxLoss
 
 models = {
@@ -44,17 +44,17 @@ def main(args):
     if args.lamodel_path:
         load_blockla_parameters(model, args.lamodel_path)
         print("LAModel loaded successfully.")
-
-    dataset = Dataset(data_dir=args.dataset_path, type="train", csv_file=args.csv_path, decode_type=args.decoder)
+    
+    dataset = Dataset(data_dir=args.dataset_path, type="test", csv_file=args.csv_path, decode_type=args.decoder)
     data_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
-    if args.decoder == "heatmap":
-        criterion = FocalLoss(args.loss_alpha, args.loss_gamma)
-    else:
+    if args.decoder == "point":
         criterion = BBoxLoss()
+    else:
+        criterion = FocalLoss(args.loss_alpha, args.loss_gamma)
 
-    _, validation_precision = validate(model, data_loader, criterion, device, args.decoder)
-    print(f"Validation Precision: {validation_precision:.4f}")
+    validation_loss, heat_validation_precision = validate(model, data_loader, criterion, device, args.decoder)
+    print(f"Validation Precision: {heat_validation_precision:.4f}, loss: {validation_loss:.4f}")
 
     # Write results to CSV
     if not os.path.exists(save_path):
@@ -64,11 +64,12 @@ def main(args):
     
     with open(save_path, "a") as file:
         csv_writer = csv.writer(file)
-        csv_writer.writerow([args.model_path.split("/")[-2:], dataset_name, validation_precision])
+        csv_writer.writerow([args.model_path.split("/")[-3:], dataset_name, heat_validation_precision, validation_loss])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Validate a model")
     parser.add_argument("--model_path", type=str, required=True)
+    parser.add_argument("--dataset_name", type=str, default="auto")
     parser.add_argument("--lamodel_path", type=str)
     parser.add_argument("--dataset_path", type=str, required=True)
     parser.add_argument("--csv_path", type=str, default=None)

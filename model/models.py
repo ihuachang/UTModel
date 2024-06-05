@@ -17,6 +17,7 @@ class UNet(nn.Module):
         self.softmax = softmax_overimage if decoder_type == 'heatmap' else softmax_overpoint
 
     def forward(self, text, bound, mask, x3d):
+        # x3d = softmax_last_two_dims(x3d)
         x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
         _, x2d, _ = self.block2d(x2d)
 
@@ -57,7 +58,36 @@ class UNet3D(nn.Module):
         x_squeeze = torch.squeeze(x, 2)
         x = self.decoder(x_squeeze, short_cut)
         return self.softmax(x)
-    
+
+class ULModel(nn.Module):
+    def __init__(self, decoder_type='heatmap'):
+        super(ULModel, self).__init__()
+        self.laModel = BlockLA()  # Make sure BlockLA is defined correctly in blocks.py
+        self.block2d = Block2D()
+        self.block3d = Block3D()
+        self.comblayer_1 = ConvLayer(768, 512, pool=False, upsample=False)
+        self.comblayer_2 = ConvLayer(512, 256, pool=False, upsample=False)
+        self.decoder = Decoder_heatmap() if decoder_type == 'heatmap' else Decoder()
+        self.softmax = softmax_overimage if decoder_type == 'heatmap' else softmax_overpoint
+
+    def forward(self, text, bound, mask, x3d):
+        # x3d = softmax_last_two_dims(x3d)
+        x2d = torch.cat((x3d[:, :, 0], x3d[:, :, -1]), dim=1)
+
+        xld_output = self.laModel(text, bound, mask)
+        x3d_output, short_cut = self.block3d(x3d)
+        x2d, x2d_output, _ = self.block2d(x2d)
+        
+        xld_output = softmax_last_two_dims(xld_output)
+        x3d_output = softmax_last_two_dims(x3d_output)
+        x2d_output = softmax_last_two_dims(x2d_output)
+        # print(x2d_output.shape, x3d_output.shape, xld_output.shape)
+        x_combined = torch.cat((x2d_output, torch.squeeze(x3d_output, 2), xld_output), dim=1)
+        x_combined = self.comblayer_1(x_combined)
+        x_combined = self.comblayer_2(x_combined)
+        decoded_output = self.decoder(x_combined, short_cut)
+        return self.softmax(decoded_output)
+
 class VLModel(nn.Module):
     def __init__(self, decoder_type='heatmap'):
         super(VLModel, self).__init__()

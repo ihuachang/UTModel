@@ -9,7 +9,7 @@ csv_path="./exp/pick.csv"
 # model_names=("VLModel" "VL2DModel" "UNet")  # List of model names
 # model_names=("UNet2D" "VL2DModel" "LModel")  # List of model names
 model_names=("UNet2D" "VL2DModel" "LModel")
-lmodel="/home/ihua/UTModel/test/aiw/LModel_heatmap/LAModel/LModel_LAModel_2.pth"
+# lmodel="/home/ihua/UTModel/test/aiw/LModel_heatmap/LAModel/LModel_LAModel_2.pth"
 freeze=0
 # Loop over models
 for model_name in "${model_names[@]}"
@@ -20,8 +20,8 @@ do
     if [ "$model_name" = "VLModel" ]; then
         batch_size=50
     elif [ "$model_name" = "VL2DModel" ]; then
-        batch_size=64
-        val_batch_size=128
+        batch_size=32
+        val_batch_size=64
     elif [ "$model_name" = "UNet" ]; then
         batch_size=40
     elif [ "$model_name" = "LModel" ]; then
@@ -41,7 +41,7 @@ do
                 --epochs ${epochs} \
                 --batch_size ${batch_size} \
                 --lr ${lr} \
-                --decoder "heatmap" \
+                --decoder "point" \
                 --dataset_path ${dataset_path} \
                 --model_name ${model_name} \
                 --loss_alpha ${loss_alpha} \

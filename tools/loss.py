@@ -13,6 +13,9 @@ class FocalLoss(nn.Module):
 
         inputs = inputs.flatten(start_dim=1)
         targets = targets.flatten(start_dim=1)
+        if torch.any(torch.isnan(targets)):
+            # print(len(targets[torch.isnan(targets)]))
+            targets[torch.isnan(targets)] = 0.0
         # normalize target
         
         # Add epsilon to inputs and subtract epsilon from 1 - inputs
@@ -32,6 +35,49 @@ class FocalLoss(nn.Module):
         loss = loss.mean()
 
         return -loss  
+
+    # def forward(self, inputs, targets):
+    #     B, _, H, W = inputs.size()
+
+    #     inputs = inputs.flatten(start_dim=1)
+    #     targets = targets.flatten(start_dim=1)
+
+    #     if torch.any(torch.isnan(targets)):
+    #         targets[torch.isnan(targets)] = 0.0
+    #     targets[targets > 0.95] = 0.999
+    #     targets[targets < 0.0002] = 0.001
+    #     # Check and print targets that are not within the range [0, 1]
+    #     if not torch.all((targets >= 0)):
+    #         out_of_bounds_targets = targets[(targets < 0)]
+    #         print("Out of bound`s 0 target values detected:", out_of_bounds_targets)
+    #     if not torch.all((targets <= 1)):
+    #         out_of_bounds_targets = targets[targets > 1]
+    #         print("Out of bound`s 1 input values detected:", out_of_bounds_targets)
+    #     # Adjusted clamping to avoid values exactly at 0 or 1
+    #     safe_epsilon = self.epsilon * 1.1  # slightly more conservative than epsilon
+    #     inputs = torch.clamp(inputs, safe_epsilon, 1 - safe_epsilon)
+
+    #     log_inputs = torch.log(inputs)  # log(p)
+    #     if torch.any(torch.isnan(log_inputs)):
+    #         print("NaN detected in log_inputs:", log_inputs)
+        
+    #     log_1_minus_inputs = torch.log(1 - inputs)  # log(1-p)
+    #     if torch.any(torch.isnan(log_1_minus_inputs)):
+    #         print("NaN detected in log_1_minus_inputs:", log_1_minus_inputs)
+
+    #     loss_1 = (1 - inputs) * log_inputs
+    #     if torch.any(torch.isnan(loss_1)):
+    #         print("NaN detected in loss_1:", loss_1)
+
+    #     loss_2 = (1 - targets).pow(self.beta) * inputs.pow(self.alpha) * log_1_minus_inputs
+    #     if torch.any(torch.isnan(loss_2)):
+    #         print("NaN detected in loss_2:", loss_2)
+    #         loss = torch.where(targets >= 0.99, loss_1, loss_2)
+    #     loss = torch.where(targets>= 0.99, loss_1, loss_2)
+    #     # Sum and average the loss
+    #     loss = loss.mean()
+
+    #     return -loss
 
 class BBoxLoss(nn.Module):
     def __init__(self, inside_penalty_weight=0.001):

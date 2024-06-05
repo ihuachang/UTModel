@@ -12,13 +12,14 @@ import shutil
 
 from tools.loss import FocalLoss, BBoxLoss
 from tools.hp5dataset import MultiFileDataset as Dataset
-from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel
+from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel, ULModel
 from tools.utils import EarlyStopper
-from tools.utils import load_blockla_parameters
+from tools.utils import load_blockla_parameters, load_block3d_parameters, load_block2d_parameters
 from tools.utils import validate
 
 # Model dictionary to dynamically select the model
 models = {
+    "ULModel": ULModel,
     "VLModel": VLModel,
     "VL2DModel": VL2DModel,
     "UNet": UNet,
@@ -44,6 +45,8 @@ def train(args):
     dataset_path = args.dataset_path
     model_path = args.model_path
     lamodel_path = args.lamodel_path
+    unet3d_path = args.unet3d_path
+    unet2d_path = args.unet2d_path
     csv_path = args.csv_path
     loss_alpha = args.loss_alpha
     loss_gamma = args.loss_gamma
@@ -52,15 +55,25 @@ def train(args):
     test = args.test
     gpu = args.gpu
     freeze = args.freeze
+    test_dataset_path = args.test_dataset_path
+
+    print(freeze)
 
     save_folder = os.path.join(save_path, f"{dataset_path.split('/')[-1]}")
     if test:
         save_folder = os.path.join("./test", f"{dataset_path.split('/')[-1]}")
 
+    model_name = f"{args.model_name}_{decoder_name}"
     if lamodel_path is not None:
-        save_path = os.path.join(save_folder, f"{args.model_name}_{decoder_name}_{lamodel_path.split('/')[-1].split('.')[0]}")
-    else:
-        save_path = os.path.join(save_folder, f"{args.model_name}_{decoder_name}")
+        model_name += f"{lamodel_path.split('/')[-1].split('.')[0]}"
+    if unet3d_path is not None:
+        model_name += f"{unet3d_path.split('/')[-1].split('.')[0]}"
+    if unet2d_path is not None:
+        model_name += f"{unet2d_path.split('/')[-1].split('.')[0]}"
+    if freeze:
+        model_name += "_freeze"
+    
+    save_path = os.path.join(save_folder, model_name)
     
     if args.model_name not in models:
         raise ValueError("Model not supported")
@@ -85,6 +98,9 @@ def train(args):
     
     if not os.path.exists(os.path.join(save_path, "block3d")):
         os.makedirs(os.path.join(save_path, "block3d"))
+    
+    if not os.path.exists(os.path.join(save_path, "block2d")):
+        os.makedirs(os.path.join(save_path, "block2d"))
 
     config = vars(args)
     with open(os.path.join(save_path, 'config.json'), 'w') as f:
@@ -97,8 +113,11 @@ def train(args):
     valid_dataset = Dataset(data_dir=dataset_path, type="val", csv_file=csv_path, demo=test, decode_type=decoder_name)
     valid_data_loader = DataLoader(valid_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
-    test_dataset = Dataset(data_dir=dataset_path, type="test", csv_file=csv_path, demo=test, decode_type=decoder_name)
-    test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
+    print(f"Training on {len(train_dataset)} samples, and Validating on {len(valid_dataset)} samples")
+
+    if test_dataset_path is not None:
+        test_dataset = Dataset(data_dir=test_dataset_path, type="test", csv_file=csv_path, demo=test, decode_type=decoder_name)
+        test_data_loader = DataLoader(test_dataset, batch_size=val_batch_size, shuffle=False, num_workers=4)
 
     if model_path is not None:
         model.load_state_dict(torch.load(model_path))
@@ -107,6 +126,14 @@ def train(args):
     if lamodel_path is not None:
         load_blockla_parameters(model, lamodel_path, freeze=freeze)
         print("LAModel loaded successfully")
+    
+    if unet3d_path is not None:
+        load_block3d_parameters(model, unet3d_path, freeze=freeze)
+        print("UNet3D loaded successfully")
+    
+    if unet2d_path is not None:
+        load_block2d_parameters(model, unet2d_path, freeze=freeze)
+        print("UNet2D loaded successfully")
 
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -135,24 +162,21 @@ def train(args):
 
     torch.save(model.state_dict(), f'{save_path}/model_{0}.pth')
 
-    early_stopper = EarlyStopper(patience=4, min_delta=0.00001)
+    early_stopper = EarlyStopper(patience=8, min_delta=0.00001)
 
     for epoch in range(num_epochs):
         train_dataset.shuffle_blocks(block_size=H5SIZE)
-        # print the first item in the dataset
-        # print(train_dataset.dataset_keys[0])
-        # Instantiate a progress bar object with the total length equal to the size of the data loader
         progress_bar = tqdm(enumerate(train_data_loader), total=len(train_data_loader))
         
         training_loss = 0.0
 
-        for i, (text, bound, mask, input2, labels, heats) in progress_bar:
+        for i, (text, bound, mask, input2, bbox, heats) in progress_bar:
             with autocast():  # Enable automatic mixed precision
                 if args.model_name == "LModel":
-                    text, bound, mask, labels = text.to(device), bound.to(device), mask.to(device), labels.to(device)
+                    text, bound, mask, labels = text.to(device), bound.to(device), mask.to(device), heats.to(device)
                     outputs = model(text, bound, mask)
                 else:
-                    text, bound, mask, input2, labels = text.to(device), bound.to(device), mask.to(device), input2.to(device), labels.to(device)
+                    text, bound, mask, input2, labels = text.to(device), bound.to(device), mask.to(device), input2.to(device), heats.to(device)
                     outputs = model(text, bound, mask, input2)
 
                 loss = criterion(outputs, labels)
@@ -172,10 +196,16 @@ def train(args):
 
         if hasattr(model, 'block3d'):
             torch.save(model.block3d.state_dict(), os.path.join(save_path, "block3d", f'{args.model_name}_BLOCK3D_{epoch+1}.pth'))
+        
+        if hasattr(model, 'block2d'):
+            torch.save(model.block2d.state_dict(), os.path.join(save_path, "block2d", f'{args.model_name}_BLOCK2D_{epoch+1}.pth'))
 
         # Validate the model
         validation_loss, precision = validate(model, valid_data_loader, criterion, device, decoder_name)
-        _, test_precision = validate(model, test_data_loader, criterion, device, decoder_name)
+
+        test_precision = nan
+        if test_dataset_path is not None:
+            _, test_precision = validate(model, test_data_loader, criterion, device, decoder_name)
 
         print(f'Epoch: {epoch+1}/{num_epochs}, Training Loss: {training_loss:.4f}, Validation Loss: {validation_loss:.4f}, Valid Precision: {precision:.4f}, Test Precision: {test_precision:.4f}')
         model.train()  # set the model back to training mode
@@ -204,7 +234,10 @@ if __name__ == "__main__":
     parser.add_argument("--test", type=bool, default=False)
     parser.add_argument("--decoder", type=str, choices=decoders.keys(), default="heatmap")
     parser.add_argument("--gpu", type=str, default="0")
-    parser.add_argument("--freeze", type=bool, default=True)
+    parser.add_argument("--freeze", type=bool, default=False)
     parser.add_argument("--lamodel_path", type=str, help="Path to a pre-trained LAModel", default=None)
+    parser.add_argument("--test_dataset_path", type=str, default=None)
+    parser.add_argument("--unet3d_path", type=str, help="Path to a pre-trained UNet3D", default=None)
+    parser.add_argument("--unet2d_path", type=str, help="Path to a pre-trained UNet2D", default=None)
     args = parser.parse_args()
     train(args)

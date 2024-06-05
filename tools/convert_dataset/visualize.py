@@ -1,7 +1,13 @@
 import h5py
 import numpy as np
+import torch
 from PIL import Image, ImageDraw
 import os
+import sys
+
+# Add the parent directory to the system path to allow imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import get_top_k_coordinates_with_masking
 
 def load_and_visualize_h5(file_path, output_dir):
     with h5py.File(file_path, 'r') as h5_file:
@@ -9,7 +15,10 @@ def load_and_visualize_h5(file_path, output_dir):
             group = h5_file[group_key]
             images = group['image_frames'][:]  # Shape: (3, 2, 256, 512)
             heatmap = group['heatmap'][:]  # Shape: (1, 256, 512)
-            bbox = group['bbox'][:]  # Shape: (1, 4)
+            if 'bbox' in group:
+                bbox = group['bbox'][:]  # Shape: (1, 4)
+            else:
+                bbox = np.array([[0, 0, 0, 0]])
             heatmap = heatmap.squeeze()  # Ensuring shape is (256, 512)
 
             # Normalize heatmap for visualization
@@ -50,7 +59,7 @@ def load_and_visualize_h5(file_path, output_dir):
                 blended.save(f"{output_dir}/combined_{i}_{j}.png")
 
 if __name__ == '__main__':
-    file_path = '/data2/peter/auto_dataset/dataset/output/auto_dataset_0.h5'  # Path to your H5 file
+    file_path = '/data2/peter/rico/rico_vlm_dataset_part_0.h5'  # Path to your H5 file
     output_dir = '/home/ihua/UTModel/tools/convert_dataset/visualize'  # Directory to save output images
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

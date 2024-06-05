@@ -42,13 +42,34 @@ def process_heatmaps(file_path):
 
     print("All transformations completed successfully!")
 
+def process_frames(file_path):
+    with h5py.File(file_path, 'r') as f:
+        # Create a new h5 file to save the updated data
+        new_file_path = file_path.replace('.h5', '_updated.h5')
+        with h5py.File(new_file_path, 'w') as new_f:
+            for key in tqdm(f.keys(), desc='Processing datasets'):
+                # Copy all the keys from the original file to the new file
+                new_f.create_group(key)
+                for subkey in f[key].keys():
+                    if subkey != 'image_frames':
+                        new_f[key].copy(f[key][subkey], subkey)
+
+                frames = f[key]['image_frames'][:]
+                frames = frames / 255.0
+                
+                # Update the 'image_frames' key with the processed frames
+                new_f[key].create_dataset('image_frames', data=frames)
+
+    print("All transformations completed successfully!")
+
+
 if __name__ == "__main__":
     # find all .h5 files in the directory
     import os
-    directory = '/data2/peter/rico'
+    directory = '/data2/peter/validation_set/manual/origin'
     for filename in os.listdir(directory):
         if filename.endswith(".h5"):
             file_path = os.path.join(directory, filename)
-            process_heatmaps(file_path)
+            process_frames(file_path)
         else:
             continue
