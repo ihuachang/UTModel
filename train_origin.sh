@@ -1,16 +1,14 @@
 #!/bin/bash
 
 # Set paths and parameters
-dataset_path="/data2/peter/rico"
-save_path="/data2/peter/model"
+dataset_path=""
+save_path=""
 epochs=100
 lr=0.0001
 csv_path="./exp/pick.csv"
-# model_names=("VLModel" "VL2DModel" "UNet")  # List of model names
-# model_names=("UNet2D" "VL2DModel" "LModel")  # List of model names
-model_names=("ULModel")
+model_names=("ULModel" "VLModel" "VL2DModel" "UNet") # List of model names
 
-lmodel="/home/ihua/UTModel/test/aiw/LModel_heatmap/LAModel/LModel_LAModel_2.pth"
+lmodel=""
 freeze=0
 # Loop over models
 for model_name in "${model_names[@]}"

@@ -6,3 +6,7 @@ tools/convert_dataset/visualize/
 **/__pycache__/
 True
 validation/
+train_aiw.sh
+train_auto.sh
+train_rico.sh
+eval.sh
