@@ -9,7 +9,7 @@ import json
 import csv
 
 from tools.hp5dataset import MultiFileDataset as Dataset
-from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel
+from model.models import VLModel, VL2DModel, UNet, UNet3D, UNet2D, LModel, ULModel
 from tools.utils import load_blockla_parameters, validate
 from tools.loss import FocalLoss, BBoxLoss
 
@@ -19,7 +19,8 @@ models = {
     "UNet": UNet,
     "UNet3D": UNet3D,
     "UNet2D": UNet2D,
-    "LModel": LModel
+    "LModel": LModel,
+    "ULModel": ULModel
 }
 
 decoders = {

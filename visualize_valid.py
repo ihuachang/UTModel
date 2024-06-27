@@ -77,6 +77,7 @@ def visualize_output(output, ax=None, heats=None, save_dir=None):
 
     if save_dir is not None:
         plt.savefig(save_dir)
+        plt.close()
     else:
         plt.savefig('output.png')
 
@@ -132,16 +133,17 @@ if os.path.exists('./validation/correct'):
 os.makedirs('./validation/correct')
 os.makedirs('./validation/wrong')
 
+#please solve the dataset heatmap bbox problem
 with torch.no_grad(), autocast():
     i = 0
+    test_precision = 0
     for data in tqdm(data_loader, total=len(data_loader), desc="Validating"):
         text, bound, mask, input2, bbox, heats = data
         text, bound, mask, input2, bbox, heats = (tensor.to(device) for tensor in [text, bound, mask, input2, bbox, heats])
 
         outputs = model(text, bound, mask, input2)
         precision, check_list = check_clicks_topk_bbox(outputs, bbox, 1, 10)
-        
-
+        test_precision += precision
         for frames, output, heat, check in zip(input2, outputs, heats, check_list):
             ax = visualize_h5(frames, True)
             if check:
@@ -150,3 +152,5 @@ with torch.no_grad(), autocast():
                 visualize_output(output, ax=ax, heats=heat, save_dir=f"./validation/wrong/{i}.png")
             i += 1
         
+    test_precision /= len(data_loader)
+    print(f"Validation Precision: {test_precision:.4f}")
