@@ -153,10 +153,10 @@ class MultiFileDataset(torch.utils.data.Dataset):
         file_path, key = self.dataset_keys[index]
         file = self.file_handles[file_path]
         data = file[key]
-        if self.decode_type == "heatmap":
+        if "bbox" in data:
             return data["ui_annotations_text_embeddings"][:], data["ui_annotations_positions"][:], data["ui_annotations_attention_mask"][:], data["image_frames"][:], data["bbox"][:], data["heatmap"][:]
         else:
-            return data["ui_annotations_text_embeddings"][:], data["ui_annotations_positions"][:], data["ui_annotations_attention_mask"][:], data["image_frames"][:], data["bbox"][:], data["heatmap"][:]
+            return data["ui_annotations_text_embeddings"][:], data["ui_annotations_positions"][:], data["ui_annotations_attention_mask"][:], data["image_frames"][:], data["heatmap"][:], data["heatmap"][:]
     
     def close_files(self):
         for file in self.file_handles.values():
