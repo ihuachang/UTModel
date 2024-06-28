@@ -28,4 +28,5 @@ models = {
 ```
 
 ## Evaluation
-Modify the content in `eval.sh` to evaluate your test dataset.
+Modify the content in `eval_origin.sh` to evaluate your test dataset.
+Make sure that the model is also in the `eval.py`.
